@@ -2,7 +2,7 @@
 
 **autopilot-harness** — a vibecoding harness that turns open-ended agent chat into **structured planning → checklist execution → multi-lens self-review**. ([中文说明](./README.zh-CN.md))
 
-[![CI](https://github.com/mt2007/autopilot-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/mt2007/autopilot-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/AdamsShen/autopilot-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/AdamsShen/autopilot-harness/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-brightgreen.svg)](https://nodejs.org/)
 
@@ -161,6 +161,7 @@ More commands and skills: [docs/autopilot/quickstart.md](./docs/autopilot/quicks
 - [Architecture](./docs/architecture.md) — packages, vendor runtime, host stop-loop caps  
 - [Config](./docs/config.md) — `.autopilot/config.yml`, triggers, concurrency, `.autopilotignore`  
 - [Troubleshooting](./docs/troubleshooting.md) — doctor WARNs, double hooks, missing skills, Claude `BLOCK_CAP`, Codex trust/timeout, Kimi Stop≤1/turn, Copilot Stop≤8 / restart / dual, Grok Stop≤8/turn / trust / multi-FP, Gemini AfterAgent cap ≤100 / min-CLI / re-trust / folder trust / `hooksConfig`, Factory multi-block / `$FACTORY_PROJECT_DIR` / `/hooks` snapshot, Hermes `$HERMES_HOME` / relative command / consent / `hermes hooks doctor`, Antigravity `.agents` / `decision:continue` / PreInvocation transcript / CLI workspace mount / live-proved continue, Devin `$DEVIN_PROJECT_DIR` / `.devin/hooks.v1.json` / `/hooks` / CLI-only, Pi `.pi/extensions` / `/trust`+`/reload` / soft min 0.85.1 / R10 TUI-only, Runner empty `runner.command` / dual-track `one_executor`  
+- [DeepSeek Harness (DSH)](./docs/dsh.md) — in-process plugin: `agent/turn-stopping` + `agent.steer()` continue, per-session project boundary, explicit `/autopilot-enable` opt-in, no hooks.json  
 - [Hosts](./docs/hosts.md) — Cursor / Claude Code / Codex / Kimi Code / Copilot CLI / Grok Build / Gemini CLI / Factory Droid / Hermes Agent / Antigravity / Pi / Devin CLI (shipped; Kimi **degraded Stop ≤1/turn**; Copilot **degraded Stop consecutive ≤8**; Grok **degraded Stop ≤8/turn**; Gemini **AfterAgent ≤100** / min-CLI **≥0.31.0**; Factory **multi-block live-proved**; Hermes **pre_verify continue live-proved**; Antigravity **live-proved** Stop continue (0.10.1); Pi **Shipped** TUI live continue ≥1× proved — in-process, not a shell hook stamp; Devin CLI **Shipped** interactive CLI live continue ≥1× proved — **CLI only**, not Desktop); **Runner = Shipped (meta)**; **OpenCode = 1 (next)** (wait upstream); full host roadmap  
 - [Host Plan-mode bridge](./docs/host-plan-bridge.md) — design only (not implemented)  
 - [Quickstart](./docs/autopilot/quickstart.md) — planning / executing cheat sheet ([中文](./docs/autopilot/quickstart.zh-CN.md))  
@@ -188,6 +189,7 @@ More commands and skills: [docs/autopilot/quickstart.md](./docs/autopilot/quicks
 | `@autopilot-harness/port-antigravity` | Antigravity hook adapter (Stop `decision:continue`; host live-proved in 0.10.1) |
 | `@autopilot-harness/port-pi` | Pi in-process extension adapter (`agent_settled` continue; soft min ≥0.85.1; R10 TUI only; **Shipped**) |
 | `@autopilot-harness/port-devin` | Devin CLI hook adapter (Stop `decision:block`+`reason`; `$DEVIN_PROJECT_DIR`; CLI only; **Shipped**) |
+| `dsh-autopilot` | DeepSeek Harness in-process plugin adapter (Stop = `agent.steer()`; no hooks.json; no known cap; **Shipped**) |
 | `@autopilot-harness/port-runner` | Runner external-loop adapter (`runner start`; Shipped meta) |
 
 ## Development

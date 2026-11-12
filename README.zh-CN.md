@@ -4,7 +4,7 @@
 
 行为以英文 [README.md](./README.md) 为准；本文是中文前门。行为变更时请与英文 README **同一 PR** 更新（见 [CONTRIBUTING.md](./CONTRIBUTING.md)）。
 
-[![CI](https://github.com/mt2007/autopilot-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/mt2007/autopilot-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/AdamsShen/autopilot-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/AdamsShen/autopilot-harness/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A522-brightgreen.svg)](https://nodejs.org/)
 
@@ -159,6 +159,8 @@ npx @autopilot-harness/cli doctor
 
 ## 文档
 
+- [DSH 使用指南（中文实操）](./docs/dsh-guide.zh-CN.md) — 安装 → 启用 → 日常使用 → 排障  
+- [DSH 端口原理](./docs/dsh.zh-CN.md) — 钩子、续跑机制、init 产物、已知限制  
 - [安装](./docs/install.zh-CN.md) — 分宿主发现 → init → doctor（[English](./docs/install.md)）  
 - [Architecture](./docs/architecture.md)  
 - [配置说明](./docs/config.md)  

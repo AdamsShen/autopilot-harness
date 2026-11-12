@@ -1955,6 +1955,9 @@ export function installInitYes(opts: InitYesOptions): InitResult {
     const wantAntigravity = platformsWantInstallableHost(effectivePlatforms, "antigravity");
     const wantPi = platformsWantInstallableHost(effectivePlatforms, "pi");
     const wantDevin = platformsWantInstallableHost(effectivePlatforms, "devin");
+    // DSH 是进程内插件宿主：不写 hooks.json，但 init 仍需为它建立
+    // .autopilot/（config.yml + state.db + 计划目录骨架）。
+    const wantDsh = platformsWantInstallableHost(effectivePlatforms, "dsh");
     const wantRunner = platformsWantInstallableHost(effectivePlatforms, "runner");
     const wantAgentsSkills = wantAgentsSkillsFromFlags({
       antigravity: wantAntigravity,
@@ -1975,12 +1978,13 @@ export function installInitYes(opts: InitYesOptions): InitResult {
       !wantAntigravity &&
       !wantPi &&
       !wantDevin &&
+      !wantDsh &&
       !wantRunner
     ) {
       return {
         ok: false,
         error:
-          "No installable host platform to wire (need cursor, claude-code, codex, kimi-code, copilot-cli, grok-build, gemini-cli, factory-droid, hermes-agent, antigravity, pi, devin, and/or runner).",
+          "No installable host platform to wire (need cursor, claude-code, codex, kimi-code, copilot-cli, grok-build, gemini-cli, factory-droid, hermes-agent, antigravity, pi, devin, dsh, and/or runner).",
       };
     }
 

@@ -1,6 +1,6 @@
 # Install
 
-**Source of truth** for discovering and wiring Autopilot on every shipped host. Product overview: [README.md](../README.md). Host capabilities: [hosts.md](./hosts.md). Cheat sheet: [autopilot/quickstart.md](./autopilot/quickstart.md).
+**Source of truth** for discovering and wiring Autopilot on every shipped host. Product overview: [README.md](../README.md). Host capabilities: [hosts.md](./hosts.md). DSH internals: [dsh.md](./dsh.md). Cheat sheet: [autopilot/quickstart.md](./autopilot/quickstart.md).
 
 **Hard rule:** host-native discovery (plugin / marketplace / extension) is optional. **Wiring always requires** `npx @autopilot-harness/cli init` (or `upgrade`) so hooks, vendor runtime, and `.autopilot/` stay consistent. A thin plugin or skill that only points at Autopilot is **not** a substitute for `init`.
 
@@ -39,6 +39,7 @@ Interactive TUI: omit `--yes`. Flags: `npx @autopilot-harness/cli init --help`.
 | `antigravity` | cli | `init --platform antigravity --yes` | Docs / `npx` only this release | Mount workspace; reload |
 | `pi` | cli (in-process) | `init --platform pi --yes` | **Never** `pi install` for Autopilot | `/trust` then `/reload`; **TUI only** |
 | `devin` | cli | `init --platform devin --yes` | Docs / `npx` only this release | `$DEVIN_PROJECT_DIR`; `/hooks`; **CLI only** |
+| `dsh` | cli (in-process) | `init --platform dsh --yes` | **No host marketplace** — install `dsh-autopilot` in the DSH profile | Add patch entry in `~/.dsh/cordis.patch.yml`; in-process, **no hooks.json** |
 | `runner` | runner | `init --yes --add-platform runner` (or `init --platform runner --yes` as first host) | **npm / docs only** — no host marketplace plugin | Set `runner.command`; `npx @autopilot-harness/cli runner start …` |
 
 **OpenCode** is roadmap-only — `init` does **not** install it. Use another shipped host or Runner until upstream stop-continue ships.
@@ -118,6 +119,21 @@ Interactive TUI: omit `--yes`. Flags: `npx @autopilot-harness/cli init --help`.
 1. **Discover:** `npx` only this release.
 2. **Init:** `npx @autopilot-harness/cli init --platform devin --yes`
 3. **Doctor:** `$DEVIN_PROJECT_DIR` = instrumented root; `/hooks` + new session. **CLI only** — not Desktop / cloud Devin / Cascade.
+
+### dsh
+
+1. **Discover:** no host marketplace. DSH is an **in-process plugin** host — Autopilot never writes a `hooks.json` for it.
+2. **Init:** `npx @autopilot-harness/cli init --platform dsh --yes` (writes `.autopilot/` config + state DB; **no** hook merge).
+3. **Load the plugin:** the package declares `dsh.bundle.patch`, so DSH composes it automatically once it is in the profile's bundle list:
+   ```bash
+   dsh plugin --profile <name> add dsh-autopilot
+   ```
+   Then ensure it is listed under `dsh.profile.bundles` in `~/.dsh/profiles/<name>/package.json` (`plugin add` installs the dependency but does **not** append the bundle entry):
+   ```json
+   "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-autopilot"]
+   ```
+   The bundled `cordis.patch.yml` registers `autopilot-harness` with `name: 'dsh-autopilot/plugin'`. Verify with `dsh --profile <name> --dump-config` — the composed tree must contain `- id: autopilot-harness`.
+4. **Doctor:** restart the profile; Autopilot registers 5 hooks (`agent/disposed`, `agent/error`, `agent/pre-step`, `tools/post-execute`, `agent/turn-stopping`) and 5 commands. Then `/autopilot-on`. Continue is `agent.steer()` — DSH has **no known stop-continue cap**, so `confirm_rounds: 5` works unclamped.
 
 ### runner
 

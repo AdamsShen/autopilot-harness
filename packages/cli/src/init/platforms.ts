@@ -26,6 +26,7 @@ export const INSTALLABLE_BINDINGS: readonly PlatformBinding[] = Object.freeze([
   { id: "antigravity", surface: "cli" },
   { id: "pi", surface: "cli" },
   { id: "devin", surface: "cli" },
+  { id: "dsh", surface: "cli" },
   { id: "runner", surface: "runner" },
 ]);
 
@@ -45,6 +46,7 @@ const DEFAULT_SURFACE_BY_ID: Readonly<Record<string, string>> = Object.freeze({
   antigravity: "cli",
   pi: "cli",
   devin: "cli",
+  dsh: "cli",
   runner: "runner",
 });
 
@@ -265,6 +267,9 @@ export function formatBindingOptionLabel(b: PlatformBinding): string {
   }
   if (id === "devin") {
     return "Devin CLI (.devin/hooks.v1.json + .devin/skills)";
+  }
+  if (id === "dsh") {
+    return "DeepSeek Harness (.dsh profile plugin; in-process; no hooks.json)";
   }
   if (id === "runner") {
     return "Runner (external loop; no hooks.json)";
