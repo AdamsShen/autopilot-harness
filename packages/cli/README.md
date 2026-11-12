@@ -8,7 +8,7 @@ Autopilot does **not** guarantee bug-free software. It raises confidence that wo
 
 ## Install & init
 
-Per-host discover → init → doctor: [Install](https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md) ([中文](https://github.com/mt2007/autopilot-harness/blob/main/docs/install.zh-CN.md)).
+Per-host discover → init → doctor: [Install](https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md) ([中文](https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.zh-CN.md)).
 
 From the app you want to instrument (`cwd` = that project):
 
@@ -63,12 +63,12 @@ Use the scoped package name (`@autopilot-harness/cli`). There is no bare npm pac
 
 ## Docs
 
-- [GitHub README](https://github.com/mt2007/autopilot-harness#readme) — product overview
-- [Install](https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md) — per-host matrix
-- [Quickstart](https://github.com/mt2007/autopilot-harness/blob/main/docs/autopilot/quickstart.md)
-- [Config](https://github.com/mt2007/autopilot-harness/blob/main/docs/config.md)
-- [Troubleshooting](https://github.com/mt2007/autopilot-harness/blob/main/docs/troubleshooting.md)
+- [GitHub README](https://github.com/AdamsShen/autopilot-harness#readme) — product overview
+- [Install](https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md) — per-host matrix
+- [Quickstart](https://github.com/AdamsShen/autopilot-harness/blob/main/docs/autopilot/quickstart.md)
+- [Config](https://github.com/AdamsShen/autopilot-harness/blob/main/docs/config.md)
+- [Troubleshooting](https://github.com/AdamsShen/autopilot-harness/blob/main/docs/troubleshooting.md)
 
 ## License
 
-MIT — see [LICENSE](https://github.com/mt2007/autopilot-harness/blob/main/LICENSE).
+MIT — see [LICENSE](https://github.com/AdamsShen/autopilot-harness/blob/main/LICENSE).

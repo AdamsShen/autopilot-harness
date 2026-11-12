@@ -29,7 +29,7 @@ pnpm exec vitest run packages/cli/tests
 Consumers should prefer `npx @autopilot-harness/cli` (see README). To run the **built** binary against a target app while developing this repo:
 
 ```bash
-git clone https://github.com/mt2007/autopilot-harness.git
+git clone git@github.com:AdamsShen/autopilot-harness.git
 cd autopilot-harness && pnpm install && pnpm build
 
 cd /path/to/your-app

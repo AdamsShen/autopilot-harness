@@ -12,4 +12,4 @@ npx @autopilot-harness/cli doctor
 
 Trust `/hooks` after init (re-trust after hook changes).
 
-Full matrix: https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md
+Full matrix: https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md

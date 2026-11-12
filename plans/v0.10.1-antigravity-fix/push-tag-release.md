@@ -15,6 +15,6 @@
 ## Links
 
 - Tag: `v0.10.1`
-- Release: https://github.com/mt2007/autopilot-harness/releases/tag/v0.10.1
+- Release: https://github.com/AdamsShen/autopilot-harness/releases/tag/v0.10.1
 
 **Result: PASS** — push + tag + GitHub Release done. npm publish still pending.

@@ -14,4 +14,4 @@ npx @autopilot-harness/cli doctor
 
 Re-trust hooks / folder trust as needed after init.
 
-Full matrix: https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md
+Full matrix: https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md

@@ -5,12 +5,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mt2007/autopilot-harness.git",
+    "url": "git+ssh://git@github.com/AdamsShen/autopilot-harness.git",
     "directory": "packages/ports/antigravity"
   },
-  "homepage": "https://github.com/mt2007/autopilot-harness#readme",
+  "homepage": "https://github.com/AdamsShen/autopilot-harness#readme",
   "bugs": {
-    "url": "https://github.com/mt2007/autopilot-harness/issues"
+    "url": "https://github.com/AdamsShen/autopilot-harness/issues"
   },
   "type": "module",
   "main": "./dist/index.js",

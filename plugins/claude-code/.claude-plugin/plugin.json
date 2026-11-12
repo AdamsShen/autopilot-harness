@@ -5,8 +5,8 @@
   "author": {
     "name": "mt2007"
   },
-  "homepage": "https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md",
-  "repository": "https://github.com/mt2007/autopilot-harness",
+  "homepage": "https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md",
+  "repository": "https://github.com/AdamsShen/autopilot-harness",
   "license": "MIT",
   "keywords": ["autopilot", "claude-code", "vibecoding", "checklist"]
 }

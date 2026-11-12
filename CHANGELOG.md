@@ -510,4 +510,4 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 - Documented `review.scope` (`executing_only` vs `project`).
 - CLI entry trust + scoped package naming (`@autopilot-harness/cli`, bin `autopilot-harness`).
 
-[0.1.0]: https://github.com/mt2007/autopilot-harness/releases/tag/v0.1.0
+[0.1.0]: https://github.com/AdamsShen/autopilot-harness/releases/tag/v0.1.0

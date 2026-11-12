@@ -114,7 +114,7 @@ describe("docs contract (review.scope / claim / troubleshooting)", () => {
       expect(body).toContain(`npx ${NPM_PACKAGE_NAME}`);
       expect(body).toContain(`npx ${NPM_PACKAGE_NAME} upgrade --dry-run`);
       expect(body).toContain(
-        "https://github.com/mt2007/autopilot-harness/blob/main/CONTRIBUTING.md",
+        "https://github.com/AdamsShen/autopilot-harness/blob/main/CONTRIBUTING.md",
       );
       expect(body).toContain(`not bare \`npx ${CLI_NAME}\``);
       expect(body).not.toMatch(/Today \(not on public npm yet\)/);
@@ -138,7 +138,7 @@ describe("docs contract (review.scope / claim / troubleshooting)", () => {
       expect(body).toContain(`npx ${NPM_PACKAGE_NAME}`);
       expect(body).toContain(`npx ${NPM_PACKAGE_NAME} upgrade --dry-run`);
       expect(body).toContain(
-        "https://github.com/mt2007/autopilot-harness/blob/main/CONTRIBUTING.md",
+        "https://github.com/AdamsShen/autopilot-harness/blob/main/CONTRIBUTING.md",
       );
       expect(body).toContain(`裸 \`npx ${CLI_NAME}\``);
       expect(body).not.toMatch(/今天（尚未上公共 npm）/);
@@ -878,7 +878,7 @@ describe("docs contract (review.scope / claim / troubleshooting)", () => {
     ).toBe(false);
 
     const installDocUrl =
-      "https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md";
+      "https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md";
     for (const id of batch1) {
       const skill = path.join(
         repoRoot,

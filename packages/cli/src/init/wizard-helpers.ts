@@ -1166,7 +1166,7 @@ npx ${NPM_PACKAGE_NAME} doctor
 npx ${NPM_PACKAGE_NAME} upgrade --dry-run
 \`\`\`
 
-从本仓库克隆开发或 dogfood：见 https://github.com/mt2007/autopilot-harness/blob/main/CONTRIBUTING.md 。
+从本仓库克隆开发或 dogfood：见 https://github.com/AdamsShen/autopilot-harness/blob/main/CONTRIBUTING.md 。
 
 ## 安装后
 
@@ -1254,7 +1254,7 @@ npx ${NPM_PACKAGE_NAME} doctor
 npx ${NPM_PACKAGE_NAME} upgrade --dry-run
 \`\`\`
 
-Developing or dogfooding from a clone of this repo: see https://github.com/mt2007/autopilot-harness/blob/main/CONTRIBUTING.md .
+Developing or dogfooding from a clone of this repo: see https://github.com/AdamsShen/autopilot-harness/blob/main/CONTRIBUTING.md .
 
 ## After install
 

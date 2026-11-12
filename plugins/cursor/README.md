@@ -12,4 +12,4 @@ npx @autopilot-harness/cli doctor
 
 Then reload the Cursor window and run `/autopilot-on`.
 
-Full matrix: https://github.com/mt2007/autopilot-harness/blob/main/docs/install.md
+Full matrix: https://github.com/AdamsShen/autopilot-harness/blob/main/docs/install.md
