@@ -329,4 +329,61 @@ describe("init --platform dsh merges the patch layer", () => {
     // 失败不得改写用户文件
     expect(fs.readFileSync(patchPath, "utf8")).toBe("insert:\n  - id: x\n");
   });
+
+  it("re-merges on a repeat run (legacy entry name migrates)", () => {
+    const { project, patchPath } = withDshHome();
+    // 模拟旧版本 init 写下的条目：证明非首次（force）路径真的重跑了合并，
+    // 而不是「文件已存在就跳过」。
+    fs.writeFileSync(
+      patchPath,
+      `- insert:\n    - id: ${DSH_PATCH_ENTRY_ID}\n      name: 'dsh-autopilot-harness/plugin'\n      config:\n        autoInit: false\n        maxSteerPerTurn: 32\n`,
+      "utf8",
+    );
+    const out = installInitYes({
+      projectRoot: project,
+      platform: "dsh",
+      surface: "cli",
+      locale: "en",
+      force: true,
+    });
+    expect(out.ok).toBe(true);
+    const bytes = fs.readFileSync(patchPath, "utf8");
+    expect(bytes).not.toContain("dsh-autopilot-harness/plugin");
+    const summary = summarizeDshAutopilotEntry(parseDshPatchYaml(bytes));
+    expect(summary.entries).toBe(1);
+    expect(summary.problems).toEqual([]);
+  });
+
+  it("fails closed when the DSH home path is a file", () => {
+    const { project } = withDshHome();
+    fs.rmSync(dshHome, { recursive: true, force: true });
+    fs.writeFileSync(dshHome, "not a dir\n", "utf8");
+    const out = installInitYes({
+      projectRoot: project,
+      platform: "dsh",
+      surface: "cli",
+      locale: "en",
+      force: false,
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error ?? "").toMatch(/not a directory/);
+  });
+
+  it("fails closed when the patch file is a symlink", () => {
+    const { project, patchPath } = withDshHome();
+    const target = path.join(dshHome, "elsewhere.yml");
+    fs.writeFileSync(target, "- insert: []\n", "utf8");
+    fs.symlinkSync(target, patchPath);
+    const out = installInitYes({
+      projectRoot: project,
+      platform: "dsh",
+      surface: "cli",
+      locale: "en",
+      force: false,
+    });
+    expect(out.ok).toBe(false);
+    expect(out.error ?? "").toMatch(/symlink/);
+    // 符号链接指向的文件不得被改写
+    expect(fs.readFileSync(target, "utf8")).toBe("- insert: []\n");
+  });
 });
