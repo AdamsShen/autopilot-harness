@@ -384,8 +384,9 @@ describe("tests-runner-contract (research §5)", () => {
       "hermes-agent",
       "antigravity",
       "devin",
+      "codebuddy",
     ]);
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect(ids).not.toContain("runner");
     expect(ids).not.toContain("pi");
     expect(src).not.toMatch(/handleRunnerStop/);
@@ -415,8 +416,9 @@ describe("tests-runner-on-contract (research §8 / C1–C9)", () => {
       "hermes-agent",
       "antigravity",
       "devin",
+      "codebuddy",
     ]);
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect(ids).not.toContain("runner");
     expect(ids).not.toContain("pi");
     expect(src).not.toMatch(/handleRunnerStop/);

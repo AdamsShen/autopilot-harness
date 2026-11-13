@@ -358,8 +358,8 @@ describe("ten-shell + Pi extension matrix (R7)", () => {
     );
     expect(known).toBeTruthy();
     const ids = [...(known?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(ids).toHaveLength(11);
-    expect(ids).toEqual([...SHELL_HOSTS, "devin"]);
+    expect(ids).toHaveLength(12);
+    expect(ids).toEqual([...SHELL_HOSTS, "devin", "codebuddy"]);
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
     expect(src).toMatch(

@@ -43,8 +43,9 @@ describe("vendor-platform-wire (pi)", () => {
     );
     expect(known).toBeTruthy();
     const ids = [...(known?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect(ids).toContain("devin");
+    expect(ids).toContain("codebuddy");
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
     expect(src).toMatch(/NON_SHELL_PLATFORMS/);

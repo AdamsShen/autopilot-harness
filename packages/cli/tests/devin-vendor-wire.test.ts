@@ -43,6 +43,7 @@ const ELEVEN_SHELL = [
   "hermes-agent",
   "antigravity",
   "devin",
+  "codebuddy",
 ] as const;
 
 describe("vendor-platform-wire (devin)", () => {
@@ -67,15 +68,16 @@ describe("vendor-platform-wire (devin)", () => {
     );
     expect(known).toBeTruthy();
     const ids = [...(known?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect(new Set(ids)).toEqual(new Set(ELEVEN_SHELL));
     expect(ids).toContain("devin");
+    expect(ids).toContain("codebuddy");
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
     expect(src).toMatch(
       /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*\]\)/,
     );
-    expect(src).toMatch(/Dispatch is explicit eleven-way/);
+    expect(src).toMatch(/Dispatch is explicit twelve-way/);
   });
 
   it("Devin package-only fallbacks exclude other host stop aliases/stamps", () => {

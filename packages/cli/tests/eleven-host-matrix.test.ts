@@ -342,9 +342,10 @@ describe("eleven-host Devin cross-fire matrix (v0.15)", () => {
     );
     expect(known).toBeTruthy();
     const ids = [...(known?.[1] ?? "").matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-    expect(ids).toHaveLength(11);
-    expect(ids).toEqual([...ELEVEN_SHELL]);
+    expect(ids).toHaveLength(12);
+    expect(ids).toEqual([...ELEVEN_SHELL, "codebuddy"]);
     expect(ids).toContain("devin");
+    expect(ids).toContain("codebuddy");
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
     expect(src).toMatch(
