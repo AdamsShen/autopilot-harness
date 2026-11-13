@@ -102,8 +102,12 @@ const KNOWN_PLATFORMS = new Set([
   "devin",
   "codebuddy",
 ]);
-/** Extension / meta hosts — must not ride the shell hook stamp path (R7). */
-const NON_SHELL_PLATFORMS = new Set(["pi", "runner"]);
+/**
+ * Extension / meta hosts — must not ride the shell hook stamp path (R7).
+ * DSH is an in-process cordis plugin (~/.dsh/cordis.patch.yml), so a stray
+ * `--platform dsh` must abort here instead of falling into Cursor heuristics.
+ */
+const NON_SHELL_PLATFORMS = new Set(["pi", "runner", "dsh"]);
 
 function parseArgs(argv) {
   const allowed = new Set([

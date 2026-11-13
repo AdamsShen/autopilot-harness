@@ -74,8 +74,9 @@ describe("vendor-platform-wire (devin)", () => {
     expect(ids).toContain("codebuddy");
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
+    expect(ids).not.toContain("dsh");
     expect(src).toMatch(
-      /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*\]\)/,
+      /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*,\s*"dsh"\s*\]\)/,
     );
     expect(src).toMatch(/Dispatch is explicit twelve-way/);
   });

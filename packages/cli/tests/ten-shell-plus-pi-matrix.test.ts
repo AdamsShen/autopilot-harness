@@ -362,8 +362,9 @@ describe("ten-shell + Pi extension matrix (R7)", () => {
     expect(ids).toEqual([...SHELL_HOSTS, "devin", "codebuddy"]);
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
+    expect(ids).not.toContain("dsh");
     expect(src).toMatch(
-      /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*\]\)/,
+      /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*,\s*"dsh"\s*\]\)/,
     );
     expect(src).toMatch(/NON_SHELL_PLATFORMS\.has\(rawPlatform\)/);
 

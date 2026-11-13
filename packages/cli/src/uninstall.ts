@@ -83,6 +83,15 @@ import {
   resolveHermesHome,
   stripAutopilotHermesConfigYaml,
 } from "./init/hermes-hooks-merge.js";
+import {
+  DSH_PATCH_ENTRY_PKG,
+  DSH_PATCH_REL_PATH,
+  dshPatchContainsAutopilot,
+  dshPatchYamlPath,
+  readDshPatch,
+  resolveDshHome,
+  stripAutopilotDshPatchYaml,
+} from "./init/dsh-patch-merge.js";
 import { readConfigInstallHints } from "./init/config-merge.js";
 import {
   configWantsInstallableHost,
@@ -891,6 +900,7 @@ function projectWantsInstallableHosts(configPath: string): {
   runner: boolean;
   devin: boolean;
   codebuddy: boolean;
+  dsh: boolean;
 } {
   try {
     const yaml = readUntrustedUtf8File(
@@ -913,6 +923,7 @@ function projectWantsInstallableHosts(configPath: string): {
       runner: configWantsInstallableHost(platforms, "runner"),
       devin: configWantsInstallableHost(platforms, "devin"),
       codebuddy: configWantsInstallableHost(platforms, "codebuddy"),
+      dsh: configWantsInstallableHost(platforms, "dsh"),
     };
   } catch {
     return {
@@ -929,6 +940,7 @@ function projectWantsInstallableHosts(configPath: string): {
       runner: false,
       devin: false,
       codebuddy: false,
+      dsh: false,
     };
   }
 }
@@ -1040,6 +1052,7 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
       runner: wantRunner,
       devin: wantDevin,
       codebuddy: wantCodebuddy,
+      dsh: wantDsh,
     } = projectWantsInstallableHosts(configPath);
     const wantAgentsSkills = wantAgentsSkillsFromFlags({
       antigravity: wantAntigravity,
@@ -2151,6 +2164,80 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
           `skip Hermes config.yaml (${formatUninstallSkipDetail(msg)})`,
         );
       }
+    }
+
+    // --- DSH 机器级补丁层（$DSH_HOME/cordis.patch.yml；不在项目树内） ---
+    const dshHome = resolveDshHome();
+    const dshPatchPath = dshPatchYamlPath(dshHome);
+    const dshPre = readDshPatch(dshPatchPath);
+    if (!dshPre.ok) {
+      if (wantDsh) {
+        throw new Error(dshPre.error);
+      }
+      actions.push(
+        `skip DSH ${DSH_PATCH_REL_PATH} (${formatUninstallSkipDetail(dshPre.error)})`,
+      );
+    } else if (dshPatchContainsAutopilot(dshPre.value)) {
+      const stripDshPatch = (): void => {
+        assertNotSymlink(dshHome, "DSH home/");
+        if (!isRealDirectory(dshHome)) {
+          throw new Error("DSH home/ is not a real directory");
+        }
+        assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+        // dry-run 也要先证明能 strip 干净，避免承诺做不到的动作。
+        const preview = stripAutopilotDshPatchYaml(dshPre.value);
+        if (dshPatchContainsAutopilot(preview)) {
+          throw new Error(
+            `${DSH_PATCH_REL_PATH} still has the Autopilot patch entry after strip`,
+          );
+        }
+        if (dryRun) {
+          found = true;
+          actions.push(
+            `strip the Autopilot entry from $DSH_HOME/${DSH_PATCH_REL_PATH}`,
+          );
+          return;
+        }
+        const dshFresh = readDshPatch(dshPatchPath);
+        if (!dshFresh.ok) {
+          throw new Error(dshFresh.error);
+        }
+        const stripped = stripAutopilotDshPatchYaml(dshFresh.value);
+        if (dshPatchContainsAutopilot(stripped)) {
+          throw new Error(
+            `${DSH_PATCH_REL_PATH} still has the Autopilot patch entry after strip`,
+          );
+        }
+        // 写前再断言一次（与 init 同级的符号链接收缩防护）。
+        assertNotSymlink(dshHome, "DSH home/");
+        if (!isRealDirectory(dshHome)) {
+          throw new Error("DSH home/ is not a real directory");
+        }
+        assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+        writeFileReplaceSync(dshPatchPath, stripped);
+        found = true;
+        hooksStripped = true;
+        actions.push(
+          `strip the Autopilot entry from $DSH_HOME/${DSH_PATCH_REL_PATH}`,
+        );
+        removed.push(`${DSH_PATCH_REL_PATH} (Autopilot patch entry)`);
+      };
+
+      try {
+        stripDshPatch();
+      } catch (err) {
+        if (wantDsh) throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        actions.push(
+          `skip DSH ${DSH_PATCH_REL_PATH} (${formatUninstallSkipDetail(msg)})`,
+        );
+      }
+    }
+    if (wantDsh) {
+      // profile 的包清单属于用户环境，Autopilot 只给指引，不代为修改。
+      actions.push(
+        `manual step: dsh plugin --profile <profile> remove ${DSH_PATCH_ENTRY_PKG} (Autopilot does not edit profile package.json)`,
+      );
     }
 
     // --- Cursor skills (lstat so symlink skills are not silently ignored) ---

@@ -570,6 +570,8 @@ export function formatHostDisplayName(platform: string): string {
       return "Devin CLI";
     case "codebuddy":
       return "CodeBuddy Code";
+    case "dsh":
+      return "DeepSeek Harness";
     case "runner":
       return "Runner";
     default: {
@@ -626,6 +628,10 @@ export function formatPostInstallOutro(
     if (id === "codebuddy") {
       return `You're all set — in ${name}, try /autopilot-on (skills under .codebuddy/skills) or line-start triggers.on / triggers.run. Hooks live in .codebuddy/settings.json (project; timeout 120; UPS+PostToolUse+Stop; UPS continue:false, Stop exit 2 + loop_limit -1 so the IDE keeps re-invoking). After install/upgrade: review hooks in /hooks, then start a new session (settings are snapshotted at startup).`;
     }
+    if (id === "dsh") {
+      // DSH 是进程内 cordis 插件宿主：配置面是机器级补丁层，不写 hooks.json。
+      return `You're all set — in ${name}, try /autopilot-on or line-start triggers.on / triggers.run. Autopilot loads as an in-process cordis plugin: the patch lives in $DSH_HOME/cordis.patch.yml (default ~/.dsh; no hooks.json). Next: dsh plugin --profile <profile> add @autopilot-harness/port-dsh, then restart the profile (plugins are loaded at boot, not hot-reloaded).`;
+    }
     if (id === "runner") {
       return `You're all set — set runner.command in .autopilot/config.yml (no fake default), then: autopilot-harness runner start --run <slug>. Status: autopilot-harness runner status. Under concurrency.mode: one_executor, Runner and a hook host cannot both hold an armed executing session.`;
     }
@@ -652,9 +658,10 @@ export function formatPostInstallOutro(
     ids.includes("antigravity") ||
     ids.includes("pi") ||
     ids.includes("devin") ||
-    ids.includes("codebuddy")
+    ids.includes("codebuddy") ||
+    ids.includes("dsh")
   ) {
-    return `You're all set — try /autopilot-on in ${names} (Codex/Copilot/Grok: skills + line-start triggers.on / triggers.run; Kimi: /skill:autopilot-on + line-start; Gemini/Factory/Hermes/Antigravity/Pi/Devin/CodeBuddy: slash skills + line-start; Kimi: confirm_rounds: 1 + Stop≤1/turn).`;
+    return `You're all set — try /autopilot-on in ${names} (Codex/Copilot/Grok: skills + line-start triggers.on / triggers.run; Kimi: /skill:autopilot-on + line-start; Gemini/Factory/Hermes/Antigravity/Pi/Devin/CodeBuddy: slash skills + line-start; DSH: in-process cordis plugin via ~/.dsh/cordis.patch.yml + dsh plugin add; Kimi: confirm_rounds = 1 + Stop≤1/turn).`;
   }
   return `You're all set — try /autopilot-on in ${names}.`;
 }

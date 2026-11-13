@@ -34,8 +34,11 @@ export const DSH_PATCH_REL_PATH = "cordis.patch.yml";
 /** 本插件的补丁条目 id（`id` 是 DSH 侧的去重/覆盖单位）。 */
 export const DSH_PATCH_ENTRY_ID = "autopilot-harness";
 
+/** 插件所属的 npm 包名（profile 依赖里必须是这个名字）。 */
+export const DSH_PATCH_ENTRY_PKG = "@autopilot-harness/port-dsh";
+
 /** 本插件的包入口（`@autopilot-harness/port-dsh/plugin`）。 */
-export const DSH_PATCH_ENTRY_NAME = "@autopilot-harness/port-dsh/plugin";
+export const DSH_PATCH_ENTRY_NAME = `${DSH_PATCH_ENTRY_PKG}/plugin`;
 
 /**
  * 历史上出现过的插件入口名，用于识别并迁移旧条目。

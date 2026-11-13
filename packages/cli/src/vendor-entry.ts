@@ -127,6 +127,15 @@ export {
   handleCodebuddyStop,
 } from "@autopilot-harness/port-codebuddy";
 
+// DSH 是进程内 cordis 插件，不经过 shell hook；这里导出仅为让 vendor runtime
+// 与 hook 资产共享同一套适配器实现（`--platform dsh` 会在 hook 入口直接 abort）。
+export {
+  DSH_PLATFORM,
+  handleDshSubmit,
+  handleDshToolResult,
+  handleDshTurnStopping,
+} from "@autopilot-harness/port-dsh";
+
 /** @deprecated Prefer handleCursorStop — kept for older hook.mjs copies. */
 export { handleStop } from "@autopilot-harness/port-cursor";
 

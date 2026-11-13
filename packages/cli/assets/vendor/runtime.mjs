@@ -3842,10 +3842,10 @@ var ReviewEngine = class {
    * salvage again — the prior tip does not cover the new failure.
    */
   classifyCompletedOrphan(transcriptPath) {
-    const path15 = transcriptPath?.trim();
-    if (!path15) return "none";
+    const path16 = transcriptPath?.trim();
+    if (!path16) return "none";
     try {
-      const events = readTranscriptTail(path15);
+      const events = readTranscriptTail(path16);
       const errIdx = latestUnresolvedTurnEndedErrorIndex(events);
       if (errIdx < 0) return "none";
       for (let i = events.length - 1; i > errIdx; i--) {
@@ -4951,8 +4951,8 @@ var ReviewEngine = class {
       let unchecked = checklist.unchecked;
       let next = checklist.next;
       let targets = null;
-      const path15 = lockedSession.checklist_path?.trim() ?? "";
-      const onChecklistPath = isChecklistExecuting(lockedSession) && path15.length > 0;
+      const path16 = lockedSession.checklist_path?.trim() ?? "";
+      const onChecklistPath = isChecklistExecuting(lockedSession) && path16.length > 0;
       if (onChecklistPath) {
         const refreshed = this.parseSessionChecklist(lockedSession);
         if (!refreshed?.checklist) {
@@ -12880,6 +12880,339 @@ function handleCodebuddyStopInner(engine, payload, opts) {
   return { continue: false, reason };
 }
 
+// ../ports/dsh/src/index.ts
+import path15 from "node:path";
+var DSH_PLATFORM = "dsh";
+var DSH_PLUGIN_SOURCE = "autopilot";
+var DSH_PLUGIN_SOURCE_KIND = `plugin:${DSH_PLUGIN_SOURCE}`;
+var DSH_EDIT_TOOLS = Object.freeze([
+  "write",
+  "edit",
+  "apply_patch",
+  "notebook_edit"
+]);
+var MAX_NEED_PICK_SLUGS12 = 40;
+var MAX_NEED_PICK_CONTEXT_CHARS12 = 2e3;
+var MAX_HOOK_TEXT_CHARS4 = 8192;
+var MAX_DSH_PATH_CHARS = 4096;
+var MAX_DSH_PATHS = 256;
+function clipText10(text, max = MAX_HOOK_TEXT_CHARS4) {
+  const s = typeof text === "string" ? text : String(text ?? "");
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}
+\u2026[truncated]`;
+}
+function isSafePath2(p) {
+  return typeof p === "string" && p.length > 0 && p.length <= MAX_DSH_PATH_CHARS && !p.includes("\0");
+}
+function conversationIdFromDshPayload(p) {
+  const raw = typeof p.conversationId === "string" ? p.conversationId.trim() : "";
+  if (!raw || raw.length > 256 || raw.includes("\0")) return "";
+  return raw;
+}
+function isDshEditTool(toolName) {
+  if (typeof toolName !== "string") return false;
+  return DSH_EDIT_TOOLS.includes(toolName);
+}
+function isDshHarnessMessage(p) {
+  if (p.sourceKind === DSH_PLUGIN_SOURCE_KIND) {
+    return true;
+  }
+  if (p.sourceKind === "plugin" && p.sourcePlugin === DSH_PLUGIN_SOURCE) {
+    return true;
+  }
+  const text = typeof p.prompt === "string" ? p.prompt : "";
+  return isHarnessFollowupMessage(text);
+}
+function stampDshPlatform(store, conversationId, projectRoot) {
+  const session = store.getSession(conversationId);
+  if (!session || session.platform === DSH_PLATFORM) return;
+  store.upsertSession({
+    conversation_id: conversationId,
+    project_root: session.project_root || projectRoot,
+    code_root: session.code_root || projectRoot,
+    platform: DSH_PLATFORM
+  });
+}
+function gateMessage2(userMessage, fallback) {
+  if (typeof userMessage === "string" && userMessage.trim()) {
+    return clipText10(userMessage.trim());
+  }
+  return fallback;
+}
+function buildNeedPickMessage2(userMessage, candidates) {
+  const fromMessage = typeof userMessage === "string" && userMessage.trim() ? userMessage.trim() : "";
+  const slugs = [];
+  if (Array.isArray(candidates)) {
+    for (const c of candidates) {
+      const slug = typeof c?.slug === "string" ? c.slug.trim() : "";
+      if (!slug) continue;
+      if (!slugs.includes(slug)) slugs.push(slug);
+      if (slugs.length >= MAX_NEED_PICK_SLUGS12) break;
+    }
+  }
+  const head = fromMessage || "[Autopilot] Multiple tracks found. Reply with the slug you want, then `/autopilot-run`.";
+  if (slugs.length === 0) return clipText10(head);
+  const body = slugs.map((s) => `- ${s}`).join("\n");
+  return clipText10(`${head}
+
+${body}`, MAX_NEED_PICK_CONTEXT_CHARS12);
+}
+function handleDshSubmit(store, payload, projectRoot, portConfig) {
+  try {
+    return handleDshSubmitInner(store, payload, projectRoot, portConfig);
+  } catch {
+    return {};
+  }
+}
+function handleDshSubmitInner(store, payload, projectRoot, portConfig) {
+  const conversationId = conversationIdFromDshPayload(payload);
+  if (!conversationId) return {};
+  const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+  if (isDshHarnessMessage(payload)) {
+    stampDshPlatform(store, conversationId, projectRoot);
+    return {};
+  }
+  try {
+    store.clearPendingFollowupIf(
+      conversationId,
+      isRecoverOrStuckFollowupMessage
+    );
+  } catch {
+  }
+  const session = store.getSession(conversationId);
+  const hookCfg = loadProjectHookConfig(projectRoot);
+  const trigger = parseTrigger({
+    prompt,
+    conversationId,
+    projectRoot,
+    pendingAction: session?.pending_action,
+    triggers: hookCfg.triggers
+  });
+  const actionConfig = {
+    ...portConfig?.phaseActions,
+    plansDir: portConfig?.phaseActions?.plansDir ?? hookCfg.plansDir
+  };
+  const gateFallback = "[Autopilot] Rejected this prompt. Check `npx autopilot-harness status`.";
+  if (trigger) {
+    if (trigger.kind === "off") {
+      applyOff(store, conversationId);
+      stampDshPlatform(store, conversationId, projectRoot);
+      return {};
+    }
+    if (trigger.kind === "on") {
+      const result = applyOn(store, conversationId, projectRoot, {
+        initialBrief: trigger.initialBrief,
+        slug: trigger.slug,
+        platform: DSH_PLATFORM
+      });
+      stampDshPlatform(store, conversationId, projectRoot);
+      if (!result.ok) {
+        return { injectMessage: gateMessage2(result.userMessage, gateFallback) };
+      }
+      return {};
+    }
+    if (trigger.kind === "resume") {
+      const result = applyResume(store, conversationId, {
+        slug: trigger.slug
+      });
+      stampDshPlatform(store, conversationId, projectRoot);
+      if (!result.ok) {
+        return { injectMessage: gateMessage2(result.userMessage, gateFallback) };
+      }
+      return {};
+    }
+    if (trigger.kind === "resume_review") {
+      applyResumeReview(store, conversationId);
+      stampDshPlatform(store, conversationId, projectRoot);
+      return {};
+    }
+    if (trigger.kind === "run") {
+      const result = applyRun(store, conversationId, projectRoot, {
+        slug: trigger.slug,
+        config: actionConfig,
+        platform: DSH_PLATFORM
+      });
+      stampDshPlatform(store, conversationId, projectRoot);
+      if (!result.ok) {
+        if (isChannelANeedPick(result)) {
+          return {
+            injectMessage: buildNeedPickMessage2(
+              result.userMessage,
+              result.candidates
+            )
+          };
+        }
+        return { injectMessage: gateMessage2(result.userMessage, gateFallback) };
+      }
+      return {};
+    }
+    if (trigger.kind === "replan") {
+      const result = applyReplan(store, conversationId, projectRoot, {
+        slug: trigger.slug,
+        config: actionConfig,
+        platform: DSH_PLATFORM
+      });
+      stampDshPlatform(store, conversationId, projectRoot);
+      if (!result.ok) {
+        if (isChannelANeedPick(result)) {
+          return {
+            injectMessage: buildNeedPickMessage2(
+              result.userMessage,
+              result.candidates
+            )
+          };
+        }
+        return { injectMessage: gateMessage2(result.userMessage, gateFallback) };
+      }
+      return {};
+    }
+    if (trigger.kind === "track_pick" && trigger.trackPick) {
+      const result = applyTrackPick(
+        store,
+        conversationId,
+        projectRoot,
+        trigger.trackPick,
+        { config: actionConfig, platform: DSH_PLATFORM }
+      );
+      stampDshPlatform(store, conversationId, projectRoot);
+      if (!result.ok) {
+        if (isChannelANeedPick(result)) {
+          return {
+            injectMessage: buildNeedPickMessage2(
+              result.userMessage,
+              result.candidates
+            )
+          };
+        }
+        return { injectMessage: gateMessage2(result.userMessage, gateFallback) };
+      }
+      return {};
+    }
+    return {};
+  }
+  if (!isHarnessFollowupMessage(prompt)) {
+    store.clearChainPending(conversationId);
+  }
+  stampDshPlatform(store, conversationId, projectRoot);
+  return {};
+}
+function armCodeEdited12(store, conversationId, projectRoot) {
+  const cfg = loadProjectReviewConfig(projectRoot);
+  if (cfg.reviewScope === "project") {
+    ensureAmbientReviewSession(
+      store,
+      conversationId,
+      projectRoot,
+      cfg.reviewScope,
+      DSH_PLATFORM
+    );
+  }
+  stampDshPlatform(store, conversationId, projectRoot);
+  const session = store.getSession(conversationId);
+  const checklistPath = session?.checklist_path?.trim() ?? "";
+  let checklistSnap = null;
+  if (checklistPath) {
+    try {
+      checklistSnap = parseChecklist(checklistPath, { projectRoot });
+    } catch {
+    }
+  }
+  store.markCodeEdited(conversationId, (chain) => {
+    const fromPending = parseAdvanceNextItemId(chain.pending_followup);
+    if (checklistSnap) {
+      if (fromPending && effectiveReviewingItemId(checklistSnap, fromPending)) {
+        return fromPending;
+      }
+      return firstUnchecked(checklistSnap)?.id ?? null;
+    }
+    return fromPending;
+  });
+}
+function filePathsFromDshToolInput(input, cwd) {
+  if (!input || typeof input !== "object") return [];
+  const keys = ["file_path", "filePath", "path", "notebook_path", "notebookPath"];
+  const out = [];
+  for (const key of keys) {
+    const raw = input[key];
+    if (typeof raw !== "string") continue;
+    let p = raw.trim();
+    if (!isSafePath2(p)) continue;
+    if (!path15.isAbsolute(p)) {
+      const base = typeof cwd === "string" && cwd.trim() ? cwd.trim() : void 0;
+      if (base && isSafePath2(base)) p = path15.resolve(base, p);
+    }
+    if (!isSafePath2(p)) continue;
+    if (!out.includes(p)) out.push(p);
+    if (out.length >= MAX_DSH_PATHS) break;
+  }
+  return out;
+}
+function armPaths3(store, conversationId, projectRoot, filePaths) {
+  if (filePaths.length === 0) {
+    stampDshPlatform(store, conversationId, projectRoot);
+    return;
+  }
+  let plansDir;
+  try {
+    plansDir = loadProjectHookConfig(projectRoot).plansDir;
+  } catch {
+    plansDir = void 0;
+  }
+  let armed = false;
+  for (const filePath of filePaths) {
+    try {
+      notePlansDirEdit(store, conversationId, projectRoot, filePath, plansDir);
+    } catch {
+    }
+    if (!isProductCodeEdit(filePath, { projectRoot })) continue;
+    if (!armed) {
+      armCodeEdited12(store, conversationId, projectRoot);
+      armed = true;
+    }
+  }
+  if (!armed) {
+    stampDshPlatform(store, conversationId, projectRoot);
+  }
+}
+function handleDshToolResult(store, payload, projectRoot) {
+  try {
+    handleDshToolResultInner(store, payload, projectRoot);
+  } catch {
+  }
+}
+function handleDshToolResultInner(store, payload, projectRoot) {
+  const conversationId = conversationIdFromDshPayload(payload);
+  if (!conversationId) return;
+  if (!isDshEditTool(payload.toolName)) {
+    stampDshPlatform(store, conversationId, projectRoot);
+    return;
+  }
+  const paths = filePathsFromDshToolInput(payload.toolInput, payload.cwd);
+  armPaths3(store, conversationId, projectRoot, paths);
+}
+function handleDshTurnStopping(engine, store, payload, projectRoot) {
+  try {
+    return handleDshTurnStoppingInner(engine, store, payload, projectRoot);
+  } catch {
+    return {};
+  }
+}
+function handleDshTurnStoppingInner(engine, store, payload, projectRoot) {
+  const conversationId = conversationIdFromDshPayload(payload);
+  if (!conversationId) return {};
+  stampDshPlatform(store, conversationId, projectRoot);
+  const action = engine.handleStop({
+    conversationId,
+    status: payload.status ?? "completed",
+    loopCount: payload.loopCount ?? 0,
+    platform: DSH_PLATFORM
+  });
+  const msg = typeof action?.message === "string" ? action.message.trim() : "";
+  if (!msg || !action?.loop) return {};
+  return { steerMessage: clipText10(msg) };
+}
+
 // src/vendor-entry.ts
 function createConfiguredReviewEngine2(store, projectRoot) {
   const cfg = loadProjectReviewConfig(projectRoot);
@@ -12891,6 +13224,7 @@ export {
   CODEBUDDY_PLATFORM,
   COPILOT_PLATFORM,
   DEVIN_PLATFORM,
+  DSH_PLATFORM,
   FACTORY_PLATFORM,
   GEMINI_PLATFORM,
   GROK_PLATFORM,
@@ -12926,6 +13260,9 @@ export {
   handleDevinPostToolUse,
   handleDevinStop,
   handleDevinUserPromptSubmit,
+  handleDshSubmit,
+  handleDshToolResult,
+  handleDshTurnStopping,
   handlePostToolUse7 as handleFactoryPostToolUse,
   handleStop8 as handleFactoryStop,
   handleUserPromptSubmit7 as handleFactoryUserPromptSubmit,

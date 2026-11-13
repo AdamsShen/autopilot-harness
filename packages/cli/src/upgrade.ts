@@ -79,6 +79,15 @@ import {
   readHermesConfigYaml,
   resolveHermesHome,
 } from "./init/hermes-hooks-merge.js";
+import {
+  DSH_PATCH_ENTRY_PKG,
+  DSH_PATCH_REL_PATH,
+  dshPatchYamlPath,
+  parseDshPatchYaml,
+  readDshPatch,
+  resolveDshHome,
+  validateDshPatchShape,
+} from "./init/dsh-patch-merge.js";
 import { PACKAGE_VERSION, type HooksFile } from "./init/types.js";
 import type { InitLocale } from "./init/types.js";
 import {
@@ -117,6 +126,7 @@ function preflightHostSettings(
   wantPi: boolean = false,
   wantDevin: boolean = false,
   wantCodebuddy: boolean = false,
+  wantDsh: boolean = false,
 ): { ok: true } | { ok: false; error: string } {
   if (wantCursor) {
     const hooksPath = path.join(projectRoot, ".cursor", "hooks.json");
@@ -585,6 +595,41 @@ function preflightHostSettings(
     }
   }
 
+  if (wantDsh) {
+    const dshHome = resolveDshHome();
+    const dshPatchPath = dshPatchYamlPath(dshHome);
+    try {
+      assertNotSymlink(dshHome, "DSH home/");
+      assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+      try {
+        const homeSt = fs.lstatSync(dshHome);
+        if (!homeSt.isDirectory()) {
+          return { ok: false, error: "DSH home/ exists and is not a directory" };
+        }
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException)?.code;
+        if (code !== "ENOENT") throw err;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+    const dshPre = readDshPatch(dshPatchPath);
+    if (!dshPre.ok) {
+      return { ok: false, error: dshPre.error };
+    }
+    // 非空补丁层必须可解析且形状合法，否则合并会把用户的机器级配置写坏。
+    if (dshPre.value.trim() !== "") {
+      try {
+        const shapeError = validateDshPatchShape(parseDshPatchYaml(dshPre.value));
+        if (shapeError) return { ok: false, error: shapeError };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+    }
+  }
+
   return { ok: true };
 }
 
@@ -869,6 +914,7 @@ export function upgradeProject(opts: UpgradeOptions): UpgradeResult {
     const wantPi = configWantsInstallableHost(platforms, "pi");
     const wantDevin = configWantsInstallableHost(platforms, "devin");
     const wantCodebuddy = configWantsInstallableHost(platforms, "codebuddy");
+    const wantDsh = configWantsInstallableHost(platforms, "dsh");
     if (wantCursor) {
       actions.push("refresh .cursor/skills/autopilot-*");
       actions.push("merge .cursor/hooks.json (Autopilot entries)");
@@ -923,6 +969,15 @@ export function upgradeProject(opts: UpgradeOptions): UpgradeResult {
         "merge $HERMES_HOME/config.yaml Autopilot hooks",
       );
     }
+    if (wantDsh) {
+      // DSH 是进程内插件：没有 hooks.json / skills，只重写机器级补丁层条目。
+      actions.push(
+        `rewrite the Autopilot entry in $DSH_HOME/${DSH_PATCH_REL_PATH} (in-process plugin; no hooks.json)`,
+      );
+      actions.push(
+        `manual step: dsh plugin --profile <profile> add ${DSH_PATCH_ENTRY_PKG} (Autopilot does not edit profile package.json)`,
+      );
+    }
     if (wantAntigravity) {
       actions.push("refresh .agents/skills/autopilot-*");
       actions.push("refresh .agents/bin/autopilot-harness-hook.mjs (shim)");
@@ -965,6 +1020,7 @@ export function upgradeProject(opts: UpgradeOptions): UpgradeResult {
       wantPi,
       wantDevin,
       wantCodebuddy,
+      wantDsh,
     );
     if (!hostPre.ok) {
       return { ok: false, error: hostPre.error };

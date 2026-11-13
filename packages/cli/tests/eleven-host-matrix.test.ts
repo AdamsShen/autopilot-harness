@@ -348,8 +348,9 @@ describe("eleven-host Devin cross-fire matrix (v0.15)", () => {
     expect(ids).toContain("codebuddy");
     expect(ids).not.toContain("pi");
     expect(ids).not.toContain("runner");
+    expect(ids).not.toContain("dsh");
     expect(src).toMatch(
-      /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*\]\)/,
+      /NON_SHELL_PLATFORMS\s*=\s*new Set\(\[\s*"pi"\s*,\s*"runner"\s*,\s*"dsh"\s*\]\)/,
     );
     expect(src).toMatch(/hostId === "devin" && !DEVIN_EVENTS\.has\(event\)/);
     expect(DEVIN_PLATFORM).toBe("devin");

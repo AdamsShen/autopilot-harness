@@ -156,6 +156,18 @@ import {
   type CodebuddySettingsFile,
 } from "./init/codebuddy-settings-merge.js";
 import {
+  DSH_PATCH_ENTRY_NAME,
+  DSH_PATCH_ENTRY_PKG,
+  DSH_PATCH_REL_PATH,
+  dshPatchContainsAutopilot,
+  dshPatchYamlPath,
+  parseDshPatchYaml,
+  readDshPatch,
+  resolveDshHome,
+  summarizeDshAutopilotEntry,
+  validateDshPatchShape,
+} from "./init/dsh-patch-merge.js";
+import {
   COPILOT_STOP_CAP_RAISE_FOUND,
   COPILOT_STOP_CONSECUTIVE_BLOCK_CAP,
 } from "@autopilot-harness/port-copilot-cli";
@@ -388,6 +400,11 @@ export type DoctorOptions = {
    * `$HERMES_HOME` / `~/.hermes` via {@link resolveHermesHome}.
    */
   hermesHome?: string;
+  /**
+   * Injectable DeepSeek Harness data home (absolute). Tests only — production
+   * uses `$DSH_HOME` / `~/.dsh` via {@link resolveDshHome}.
+   */
+  dshHome?: string;
 };
 
 export type DoctorResult = {
@@ -2264,6 +2281,133 @@ export function runDoctor(
       ) {
         lines.push(
           `WARN  leftover ${CODEBUDDY_SETTINGS_REL_PATH} Autopilot fingerprint (codebuddy not in platforms) — uninstall or add-platform codebuddy`,
+        );
+      }
+    } catch {
+      /* missing / unreadable — ignore */
+    }
+  }
+
+  const wantDsh = configWantsInstallableHost(cfg.platforms, "dsh");
+  const dshHomeInject = opts.dshHome;
+  const dshHomeForProbe =
+    typeof dshHomeInject === "string" &&
+    dshHomeInject &&
+    path.isAbsolute(dshHomeInject)
+      ? dshHomeInject
+      : resolveDshHome();
+  const dshPatchForProbe = dshPatchYamlPath(dshHomeForProbe);
+  if (wantDsh) {
+    lines.push(
+      "WARN  DeepSeek Harness: plugin wiring lives in the machine-level patch layer ($DSH_HOME/cordis.patch.yml, default ~/.dsh; no hooks.json) — it applies to every DSH profile and is not hot-reloaded (restart the profile after install/upgrade)",
+    );
+    const dshRead = readDshPatch(dshPatchForProbe);
+    if (!dshRead.ok) {
+      lines.push(
+        `FAIL  ${DSH_PATCH_REL_PATH} unreadable (${safeDisplayToken(dshRead.error, "error")})`,
+      );
+      ok = false;
+    } else if (dshRead.value.trim() === "") {
+      lines.push(
+        `FAIL  ${DSH_PATCH_REL_PATH} missing the Autopilot patch entry — run init --force`,
+      );
+      ok = false;
+    } else {
+      let dshDoc: unknown;
+      let dshShapeError: string | null = null;
+      try {
+        dshDoc = parseDshPatchYaml(dshRead.value);
+      } catch (err) {
+        dshShapeError = err instanceof Error ? err.message : String(err);
+      }
+      const dshShape = dshShapeError ?? validateDshPatchShape(dshDoc);
+      if (dshShape) {
+        lines.push(
+          `FAIL  ${DSH_PATCH_REL_PATH}: ${safeDisplayToken(dshShape, "invalid shape")}`,
+        );
+        ok = false;
+      } else {
+        const summary = summarizeDshAutopilotEntry(dshDoc);
+        if (summary.entries === 0) {
+          lines.push(
+            `FAIL  ${DSH_PATCH_REL_PATH} missing the Autopilot patch entry — run init --force`,
+          );
+          ok = false;
+        } else {
+          if (summary.entries > 1) {
+            lines.push(
+              `WARN  ${DSH_PATCH_REL_PATH} has ${summary.entries} Autopilot patch entries (ids: ${summary.ids.map((id) => safeDisplayToken(id, "?")).join(", ")}) — keep one`,
+            );
+          }
+          if (summary.legacyName) {
+            lines.push(
+              `WARN  ${DSH_PATCH_REL_PATH} still points at a legacy plugin name — run upgrade (expected ${DSH_PATCH_ENTRY_NAME})`,
+            );
+          }
+          for (const problem of summary.problems) {
+            lines.push(
+              `FAIL  ${DSH_PATCH_REL_PATH}: ${safeDisplayToken(problem, "problem")}`,
+            );
+            ok = false;
+          }
+          if (
+            summary.entries === 1 &&
+            summary.problems.length === 0 &&
+            !summary.legacyName
+          ) {
+            lines.push(`OK    ${DSH_PATCH_REL_PATH} Autopilot patch entry`);
+          }
+        }
+      }
+    }
+    // 补丁层只声明「加载哪个入口」；profile 未装包时运行期解析失败、表面上是
+    // 静默不生效，所以这里单独探一遍（profiles/ 布局未知时整体跳过，不误报）。
+    try {
+      const profilesDir = path.join(dshHomeForProbe, "profiles");
+      const profileNames = fs
+        .readdirSync(profilesDir, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+      for (const profileName of profileNames) {
+        let declared = false;
+        try {
+          const rawPkg = readUntrustedUtf8File(
+            path.join(profilesDir, profileName, "package.json"),
+            MAX_CONFIG_BYTES,
+            `profiles/${profileName}/package.json`,
+          );
+          const pkg = JSON.parse(rawPkg) as {
+            dependencies?: Record<string, string>;
+            devDependencies?: Record<string, string>;
+          };
+          declared = Boolean(
+            pkg?.dependencies?.[DSH_PATCH_ENTRY_PKG] ??
+              pkg?.devDependencies?.[DSH_PATCH_ENTRY_PKG],
+          );
+        } catch {
+          // 没有 package.json 的 profile（或读不了）不参与判定。
+          continue;
+        }
+        if (!declared) {
+          lines.push(
+            `WARN  DSH profile "${safeDisplayToken(profileName, "?")}" does not declare ${DSH_PATCH_ENTRY_PKG} — the patch loads but the module cannot resolve; run: dsh plugin --profile ${profileName} add ${DSH_PATCH_ENTRY_PKG}`,
+          );
+        }
+      }
+    } catch {
+      /* profiles/ missing — 布局未知，跳过 */
+    }
+  } else {
+    try {
+      const dshLeftover = readDshPatch(dshPatchForProbe);
+      if (
+        dshLeftover.ok &&
+        dshLeftover.value.trim() !== "" &&
+        dshPatchContainsAutopilot(dshLeftover.value)
+      ) {
+        lines.push(
+          `WARN  leftover ${DSH_PATCH_REL_PATH} Autopilot patch entry (dsh not in platforms) — uninstall or add-platform dsh`,
         );
       }
     } catch {
