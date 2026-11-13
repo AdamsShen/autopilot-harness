@@ -2178,7 +2178,7 @@ export function runDoctor(
           }
           if (codebuddyAutopilotHasOmittedIdeLoopLimit(file)) {
             lines.push(
-              "WARN  Autopilot CodeBuddy Stop hook missing loop_limit: -1 — the IDE resumes only once per turn; run upgrade",
+              "WARN  Autopilot CodeBuddy Stop matcher group missing loop_limit: -1 (host reads the group, not the handler) — the IDE resumes only once per turn; run upgrade",
             );
           }
           if (missingEvents.length === 0 && !hasStamp) {

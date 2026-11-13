@@ -109,3 +109,6 @@ composer.lock
 # --- merged from Autopilot defaults (upgrade/init) ---
 docs/autopilot/plans/**
 docs/autopilot/specs/**
+.codebuddy/settings.json
+.codebuddy/settings.local.json
+.codebuddy/skills/**

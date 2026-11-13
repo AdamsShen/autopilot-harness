@@ -18,6 +18,7 @@ import {
   isCodebuddyHookFingerprint,
   isCodebuddySilentAllow,
   loopCountFromCodebuddyStopHookActive,
+  resolveCodebuddyTranscriptPath,
 } from "../src/index.js";
 
 function tmpRoot(): string {
@@ -126,6 +127,44 @@ describe("port-codebuddy", () => {
       expect(isCodebuddySilentAllow(res)).toBe(true);
     } finally {
       store.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("transcript_path is only trusted when it is a regular JSONL file", () => {
+    const root = tmpRoot();
+    try {
+      // IDE 传的是会话目录：不能当 transcript，否则 pending 永远判定未投递而反复重投。
+      const dir = path.join(root, "history", "cb-session");
+      fs.mkdirSync(dir, { recursive: true });
+      expect(resolveCodebuddyTranscriptPath(dir)).toBeUndefined();
+
+      const file = path.join(dir, "transcript.jsonl");
+      fs.writeFileSync(file, "{}\n");
+      expect(resolveCodebuddyTranscriptPath(file)).toBe(file);
+
+      // 普通文件但非 JSONL（IDE 的 index.json 聚合文件）同样不能当事件流。
+      const aggregate = path.join(dir, "index.json");
+      fs.writeFileSync(aggregate, '{\n  "messages": []\n}\n');
+      expect(resolveCodebuddyTranscriptPath(aggregate)).toBeUndefined();
+
+      // 符号链接即便指向普通文件也不信任（与 readTranscriptTail 的 fail-closed 对齐）。
+      const link = path.join(root, "transcript-link.jsonl");
+      try {
+        fs.symlinkSync(file, link);
+        expect(resolveCodebuddyTranscriptPath(link)).toBeUndefined();
+      } catch {
+        /* 平台不支持创建符号链接时跳过该断言 */
+      }
+
+      expect(
+        resolveCodebuddyTranscriptPath(path.join(root, "missing.jsonl")),
+      ).toBeUndefined();
+      expect(resolveCodebuddyTranscriptPath("a\0b")).toBeUndefined();
+      expect(resolveCodebuddyTranscriptPath("")).toBeUndefined();
+      expect(resolveCodebuddyTranscriptPath(undefined)).toBeUndefined();
+      expect(resolveCodebuddyTranscriptPath(42)).toBeUndefined();
+    } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

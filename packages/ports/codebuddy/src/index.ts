@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import {
   applyOff,
   applyOn,
@@ -645,6 +646,35 @@ function handleCodebuddyPostToolUseInner(
 }
 
 /**
+ * 校验宿主传来的 `transcript_path` 是否可用作「followup 是否已投递」的证据。
+ *
+ * 只有 Claude 风格的 JSONL 普通文件才有意义：review-engine 的
+ * `readTranscriptTail` 遇到目录/非文件/无法按行 JSON 解析的内容都返回空事件表，
+ * 随后 `tryRedeliverPending` 会认为 pending 从未投递，每次 Stop 都重投同一条
+ * fix/confirm 文案（表现为 fix round 反复重放、链永远进不到 confirm）。
+ *
+ * CodeBuddy IDE 传的是会话目录或 `index.json` 这类聚合文件，两者都不可解析为
+ * JSONL 事件流，因此这里要求「普通文件 + `.jsonl`/`.ndjson` 后缀」；其余
+ * （目录 / 符号链接 / 其它后缀 / 缺失 / 控制字符）统一返回 undefined，
+ * 走 review-engine「无 transcript 不做重投递」的既有契约。
+ */
+const CODEBUDDY_TRANSCRIPT_EXT_RE = /\.(?:jsonl|ndjson)$/i;
+
+export function resolveCodebuddyTranscriptPath(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
+  if (!CODEBUDDY_TRANSCRIPT_EXT_RE.test(trimmed)) return undefined;
+  try {
+    const st = fs.lstatSync(trimmed);
+    if (st.isSymbolicLink() || !st.isFile()) return undefined;
+    return trimmed;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Stop → ReviewEngine。需要续跑时返回 `{continue:false, reason}`，由 hook
  * writer 转成宿主要的 blocking 通道（exit 2 + stderr）：CLI 2.181 对 Stop
  * 的 `continue:false` 只记 non-blocking failure，不会重新唤起模型。
@@ -670,14 +700,9 @@ function handleCodebuddyStopInner(
   const conversationId = sessionIdOnly(payload);
   if (!conversationId) return {};
 
-  const transcriptTrimmed = firstNonBlankString(
-    payload.transcript_path,
-    payload.transcriptPath,
+  const transcriptPath = resolveCodebuddyTranscriptPath(
+    firstNonBlankString(payload.transcript_path, payload.transcriptPath),
   );
-  const transcriptPath =
-    transcriptTrimmed && !/[\u0000-\u001f\u007f]/.test(transcriptTrimmed)
-      ? transcriptTrimmed
-      : undefined;
 
   const action: FollowupAction | null = engine.handleStop({
     conversationId,

@@ -12497,6 +12497,7 @@ function handleDevinStopInner(engine, payload, opts) {
 }
 
 // ../ports/codebuddy/src/index.ts
+import fs13 from "node:fs";
 var CODEBUDDY_PLATFORM = "codebuddy";
 var CODEBUDDY_POST_TOOL_USE_MATCHER = "^(Edit|Write|MultiEdit|NotebookEdit)$";
 var MAX_NEED_PICK_SLUGS11 = 40;
@@ -12837,6 +12838,20 @@ function handleCodebuddyPostToolUseInner(store, payload, projectRoot) {
   }
   if (!armed) stampCodebuddyPlatform(store, conversationId, projectRoot);
 }
+var CODEBUDDY_TRANSCRIPT_EXT_RE = /\.(?:jsonl|ndjson)$/i;
+function resolveCodebuddyTranscriptPath(raw) {
+  if (typeof raw !== "string") return void 0;
+  const trimmed = raw.trim();
+  if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) return void 0;
+  if (!CODEBUDDY_TRANSCRIPT_EXT_RE.test(trimmed)) return void 0;
+  try {
+    const st = fs13.lstatSync(trimmed);
+    if (st.isSymbolicLink() || !st.isFile()) return void 0;
+    return trimmed;
+  } catch {
+    return void 0;
+  }
+}
 function handleCodebuddyStop(engine, payload, opts) {
   try {
     return handleCodebuddyStopInner(engine, payload, opts);
@@ -12847,11 +12862,9 @@ function handleCodebuddyStop(engine, payload, opts) {
 function handleCodebuddyStopInner(engine, payload, opts) {
   const conversationId = sessionIdOnly2(payload);
   if (!conversationId) return {};
-  const transcriptTrimmed = firstNonBlankString2(
-    payload.transcript_path,
-    payload.transcriptPath
+  const transcriptPath = resolveCodebuddyTranscriptPath(
+    firstNonBlankString2(payload.transcript_path, payload.transcriptPath)
   );
-  const transcriptPath = transcriptTrimmed && !/[\u0000-\u001f\u007f]/.test(transcriptTrimmed) ? transcriptTrimmed : void 0;
   const action = engine.handleStop({
     conversationId,
     status: normalizeCodebuddyStopStatus(payload, opts),

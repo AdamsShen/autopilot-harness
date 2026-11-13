@@ -9,6 +9,7 @@ import {
   CODEBUDDY_POST_TOOL_USE_MATCHER,
   CODEBUDDY_SETTINGS_REL_PATH,
   autopilotCodebuddyMatcherGroup,
+  codebuddyAutopilotHasOmittedIdeLoopLimit,
   codebuddyHooksHavePlatformStamp,
   hasCompleteCodebuddyAutopilotHooks,
   mergeCodebuddySettings,
@@ -96,11 +97,55 @@ describe("codebuddy init merge", () => {
     const stopGroup = autopilotCodebuddyMatcherGroup("Stop");
     expect(stopGroup.matcher).toBeUndefined();
     expect(stopGroup.hooks?.[0]?.timeout).toBe(CODEBUDDY_HOOK_TIMEOUT_SEC);
-    // IDE 桌面端默认每轮只续跑 1 次；Stop 必须带 loop_limit: -1。
+    // IDE 桌面端默认每轮只续跑 1 次；Stop 必须在 matcher group 层带 loop_limit: -1
+    //（宿主 resolveStopHookLoopLimit 只读 group 层），handler 层保留同值。
+    expect(stopGroup.loop_limit).toBe(-1);
     expect(stopGroup.hooks?.[0]?.loop_limit).toBe(-1);
+    expect(
+      autopilotCodebuddyMatcherGroup("UserPromptSubmit").loop_limit,
+    ).toBeUndefined();
     expect(
       autopilotCodebuddyMatcherGroup("UserPromptSubmit").hooks?.[0]?.loop_limit,
     ).toBeUndefined();
+  });
+
+  it("upgrade migrates legacy handler-level loop_limit onto the Stop matcher group", () => {
+    // 旧版 init 把 loop_limit 写在 handler 里；宿主只读 group 层 → 一轮后续跑被截断。
+    const legacy = {
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command:
+                  "node .autopilot/bin/autopilot-harness-hook.mjs --platform codebuddy --event Stop",
+                timeout: 120,
+                loop_limit: -1,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    expect(codebuddyAutopilotHasOmittedIdeLoopLimit(legacy)).toBe(true);
+
+    const merged = mergeCodebuddySettings(legacy);
+    expect(codebuddyAutopilotHasOmittedIdeLoopLimit(merged)).toBe(false);
+    expect(hasCompleteCodebuddyAutopilotHooks(merged)).toBe(true);
+
+    const stopGroups =
+      (merged.hooks as Record<string, Array<Record<string, unknown>>>)?.Stop ??
+      [];
+    const autopilotGroups = stopGroups.filter((g) =>
+      (Array.isArray(g.hooks) ? (g.hooks as Array<Record<string, unknown>>) : [])
+        .some((h) =>
+          String(h.command ?? "").includes("autopilot-harness-hook.mjs"),
+        ),
+    );
+    // 旧组被替换（不重复注册），且上限落在 group 层。
+    expect(autopilotGroups.length).toBe(1);
+    expect(autopilotGroups[0]?.loop_limit).toBe(-1);
   });
 
   it("strips Autopilot only, keeping foreign hooks and settings keys", () => {

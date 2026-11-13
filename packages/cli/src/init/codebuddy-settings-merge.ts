@@ -50,6 +50,12 @@ export interface CodebuddyHookHandler {
 export interface CodebuddyMatcherGroup {
   matcher?: string;
   hooks?: CodebuddyHookHandler[];
+  /**
+   * IDE 桌面端的 Stop 续跑上限，**必须写在 matcher group 上**：
+   * 宿主 `resolveStopHookLoopLimit()` 读的是 `settings.hooks.Stop[i].loop_limit`
+   * （group 层），handler 层的同名键不会被读取，缺失即回落到默认 1 次。
+   */
+  loop_limit?: number;
   [key: string]: unknown;
 }
 
@@ -88,13 +94,18 @@ export function autopilotCodebuddyMatcherGroup(
     command: autopilotCodebuddyHookCommandLine(event),
     timeout: CODEBUDDY_HOOK_TIMEOUT_SEC,
   };
-  // IDE 桌面端默认 loopLimit=1（每轮只续跑一次）；Autopilot 的 fix/confirm
-  // 需要多轮，桌面端靠 loop_limit 提升。-1 = 不限（宿主只接受 -1 或 1..100）。
-  if (event === "Stop") handler.loop_limit = CODEBUDDY_IDE_STOP_LOOP_LIMIT;
-  if (event === "PostToolUse") {
-    return { matcher: CODEBUDDY_POST_TOOL_USE_MATCHER, hooks: [handler] };
+  const group: CodebuddyMatcherGroup =
+    event === "PostToolUse"
+      ? { matcher: CODEBUDDY_POST_TOOL_USE_MATCHER, hooks: [handler] }
+      : { hooks: [handler] };
+  // IDE 桌面端默认每轮只续跑 1 次；Autopilot 的 fix/confirm 需要多轮。
+  // 宿主 resolveStopHookLoopLimit() 读的是 group 层 loop_limit（-1 = 不限），
+  // 所以写在 group 上；handler 层保留同值，兼容只看 handler 的宿主版本。
+  if (event === "Stop") {
+    group.loop_limit = CODEBUDDY_IDE_STOP_LOOP_LIMIT;
+    handler.loop_limit = CODEBUDDY_IDE_STOP_LOOP_LIMIT;
   }
-  return { hooks: [handler] };
+  return group;
 }
 
 /** settings.json 形状可合并才继续；否则拒绝（不覆盖用户配置）。 */
@@ -280,8 +291,9 @@ export function codebuddySettingsContainAutopilot(
 }
 
 /**
- * Stop 上的 Autopilot handler 是否缺少 IDE 需要的 `loop_limit: -1`。
- * IDE 4.12 默认每轮只续跑 1 次；CLI 忽略该字段，所以缺失只会影响桌面端。
+ * Stop 上的 Autopilot matcher group 是否缺少 IDE 需要的 `loop_limit: -1`。
+ * 宿主的 resolveStopHookLoopLimit() 只读 group 层字段；写在 handler 层会被
+ * 忽略并回落到默认 1 次（表现为只续跑一轮后卡住）。
  */
 export function codebuddyAutopilotHasOmittedIdeLoopLimit(
   settings: CodebuddySettingsFile,
@@ -292,11 +304,13 @@ export function codebuddyAutopilotHasOmittedIdeLoopLimit(
   if (!Array.isArray(stop)) return false;
   for (const group of stop as CodebuddyMatcherGroup[]) {
     const handlers = Array.isArray(group?.hooks) ? group.hooks : [];
-    for (const h of handlers) {
-      if (!isAutopilotCommand(h?.command)) continue;
-      if (!String(h?.command).includes("--event Stop")) continue;
-      if (h.loop_limit !== CODEBUDDY_IDE_STOP_LOOP_LIMIT) return true;
-    }
+    const hasAutopilotStop = handlers.some(
+      (h) =>
+        isAutopilotCommand(h?.command) &&
+        String(h?.command).includes("--event Stop"),
+    );
+    if (!hasAutopilotStop) continue;
+    if (group?.loop_limit !== CODEBUDDY_IDE_STOP_LOOP_LIMIT) return true;
   }
   return false;
 }
