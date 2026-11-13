@@ -568,6 +568,8 @@ export function formatHostDisplayName(platform: string): string {
       return "Pi";
     case "devin":
       return "Devin CLI";
+    case "codebuddy":
+      return "CodeBuddy Code";
     case "runner":
       return "Runner";
     default: {
@@ -621,6 +623,9 @@ export function formatPostInstallOutro(
     if (id === "devin") {
       return `You're all set — in ${name}, try /autopilot-on (skills under .devin/skills) or line-start triggers.on / triggers.run. Hooks live in .devin/hooks.v1.json (timeout 120; commands use $DEVIN_PROJECT_DIR; not .devin/config.json). After install/upgrade: check /hooks, then start a new session. CLI only — not Desktop.`;
     }
+    if (id === "codebuddy") {
+      return `You're all set — in ${name}, try /autopilot-on (skills under .codebuddy/skills) or line-start triggers.on / triggers.run. Hooks live in .codebuddy/settings.json (project; timeout 120; UPS+PostToolUse+Stop; UPS continue:false, Stop exit 2 + loop_limit -1 so the IDE keeps re-invoking). After install/upgrade: review hooks in /hooks, then start a new session (settings are snapshotted at startup).`;
+    }
     if (id === "runner") {
       return `You're all set — set runner.command in .autopilot/config.yml (no fake default), then: autopilot-harness runner start --run <slug>. Status: autopilot-harness runner status. Under concurrency.mode: one_executor, Runner and a hook host cannot both hold an armed executing session.`;
     }
@@ -646,9 +651,10 @@ export function formatPostInstallOutro(
     ids.includes("hermes-agent") ||
     ids.includes("antigravity") ||
     ids.includes("pi") ||
-    ids.includes("devin")
+    ids.includes("devin") ||
+    ids.includes("codebuddy")
   ) {
-    return `You're all set — try /autopilot-on in ${names} (Codex/Copilot/Grok: skills + line-start triggers.on / triggers.run; Kimi: /skill:autopilot-on + line-start; Gemini/Factory/Hermes/Antigravity/Pi/Devin: slash skills + line-start; Kimi: confirm_rounds: 1 + Stop≤1/turn).`;
+    return `You're all set — try /autopilot-on in ${names} (Codex/Copilot/Grok: skills + line-start triggers.on / triggers.run; Kimi: /skill:autopilot-on + line-start; Gemini/Factory/Hermes/Antigravity/Pi/Devin/CodeBuddy: slash skills + line-start; Kimi: confirm_rounds: 1 + Stop≤1/turn).`;
   }
   return `You're all set — try /autopilot-on in ${names}.`;
 }
@@ -711,6 +717,10 @@ export function formatHostActivationTips(
     } else if (id === "devin") {
       tips.push(
         `${host}: Autopilot writes .devin/hooks.v1.json (top-level events; timeout 120; UPS+PostToolUse+Stop; commands use $DEVIN_PROJECT_DIR; does not write .devin/config.json hooks) and .devin/skills/autopilot-* (triggers: [user]). After install/upgrade: check /hooks, then start a new session. Activation: /autopilot-on or line-start triggers.on / triggers.run. CLI only — not Desktop.`,
+      );
+    } else if (id === "codebuddy") {
+      tips.push(
+        `${host}: Autopilot writes .codebuddy/settings.json (project hooks; nested matcher groups; timeout 120; UserPromptSubmit+PostToolUse+Stop; matcher ^(Edit|Write|MultiEdit|NotebookEdit)$) and .codebuddy/skills/autopilot-*. UPS block is continue:false+reason; Stop continue is blocking (exit 2 + stderr) because CLI 2.181 drops Stop continue:false — and the IDE defaults to 1 continue/turn, so init writes loop_limit: -1. Mid-chain cutoff → /autopilot-resume. Settings are not hot-reloaded: review /hooks, then start a new session. Activation: /autopilot-on or line-start triggers.on / triggers.run.`,
       );
     } else if (id === "runner") {
       tips.push(

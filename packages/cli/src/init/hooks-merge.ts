@@ -13,6 +13,7 @@ export const HOOK_PLATFORM_FACTORY_DROID = "factory-droid";
 export const HOOK_PLATFORM_HERMES_AGENT = "hermes-agent";
 export const HOOK_PLATFORM_ANTIGRAVITY = "antigravity";
 export const HOOK_PLATFORM_DEVIN = "devin";
+export const HOOK_PLATFORM_CODEBUDDY = "codebuddy";
 
 /** Canonical Autopilot hook command line (platform + event). */
 export function autopilotHookCommandLine(

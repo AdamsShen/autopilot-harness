@@ -40,6 +40,11 @@ import {
   type DevinHooksFile,
 } from "./devin-hooks-merge.js";
 import {
+  mergeCodebuddySettings,
+  validateCodebuddySettingsShape,
+  type CodebuddySettingsFile,
+} from "./codebuddy-settings-merge.js";
+import {
   mergeAntigravityHooks,
   validateAntigravityHooksShape,
   type AntigravityHooksFile,
@@ -290,6 +295,28 @@ export {
   isParseableDevinVersion,
   isDevinVersionBelowSoftMin,
 } from "./devin-cli.js";
+export {
+  mergeCodebuddySettings,
+  validateCodebuddySettingsShape,
+  hasCompleteCodebuddyAutopilotHooks,
+  summarizeCodebuddyAutopilotHooks,
+  stripAutopilotCodebuddySettings,
+  codebuddySettingsContainAutopilot,
+  codebuddyHooksHavePlatformStamp,
+  codebuddyAutopilotHasOmittedOrSmallTimeout,
+  autopilotCodebuddyHookCommandLine,
+  autopilotCodebuddyMatcherGroup,
+  CODEBUDDY_AUTOPILOT_EVENTS,
+  CODEBUDDY_POST_TOOL_USE_MATCHER,
+  CODEBUDDY_HOOK_TIMEOUT_SEC,
+  CODEBUDDY_SETTINGS_REL_PATH,
+  CODEBUDDY_SETTINGS_LOCAL_REL_PATH,
+} from "./codebuddy-settings-merge.js";
+export type {
+  CodebuddySettingsFile,
+  CodebuddyMatcherGroup,
+  CodebuddyHookHandler,
+} from "./codebuddy-settings-merge.js";
 export {
   mergeAntigravityHooks,
   validateAntigravityHooksShape,
@@ -623,6 +650,10 @@ type DevinHooksRead =
   | { ok: true; value: DevinHooksFile | null }
   | { ok: false; error: string };
 
+type CodebuddySettingsRead =
+  | { ok: true; value: CodebuddySettingsFile | null }
+  | { ok: false; error: string };
+
 type AntigravityHooksRead =
   | { ok: true; value: AntigravityHooksFile | null }
   | { ok: false; error: string };
@@ -710,6 +741,47 @@ function readClaudeSettingsFile(filePath: string): ClaudeSettingsRead {
     }
     const obj = parsed as ClaudeSettingsFile;
     const shapeError = validateClaudeSettingsShape(obj);
+    if (shapeError) {
+      return { ok: false, error: `${filePath}: ${shapeError}` };
+    }
+    return { ok: true, value: obj };
+  } catch {
+    return {
+      ok: false,
+      error: `${filePath} is not valid JSON; fix or remove it before init.`,
+    };
+  }
+}
+
+/** Read `.codebuddy/settings.json`; refuse to clobber an existing unreadable file. */
+function readCodebuddySettingsFile(
+  filePath: string,
+): CodebuddySettingsRead {
+  let raw: string;
+  try {
+    raw = readUntrustedUtf8File(
+      filePath,
+      MAX_UNTRUSTED_TEXT_BYTES,
+      ".codebuddy/settings.json",
+    );
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") {
+      return { ok: true, value: null };
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Cannot read ${filePath}: ${msg}` };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error: `${filePath} is not a JSON object; fix or remove it before init.`,
+      };
+    }
+    const obj = parsed as CodebuddySettingsFile;
+    const shapeError = validateCodebuddySettingsShape(obj);
     if (shapeError) {
       return { ok: false, error: `${filePath}: ${shapeError}` };
     }
@@ -1729,8 +1801,9 @@ export function preflightForceRefresh(projectRoot: string): PreflightResult {
  * `.github/hooks/autopilot-harness.json` (+ `.github/skills`) and/or
  * `.grok/hooks/autopilot-harness.json` (+ `.grok/skills`) and/or
  * `.gemini/settings.json` and/or `.factory/hooks.json` and/or
+ * `.codebuddy/settings.json` and/or
  * `.agents/hooks.json` and/or shared `.agents/skills` for Antigravity/Pi/Codex/Kimi
- * and/or Gemini/Factory/Hermes/Devin skills per platforms). Does not write Codex
+ * and/or Gemini/Factory/Hermes/Devin/CodeBuddy skills per platforms). Does not write Codex
  * `config.toml` hooks, Kimi `local.toml`, or `AGENTS.md`.
  * `--force` refreshes hook/skills/pin/hooks merge but does **not** overwrite
  * an existing config.yml, except when `mergePlatforms` / `--add-platform`
@@ -1781,6 +1854,8 @@ export function installInitYes(opts: InitYesOptions): InitResult {
   const factoryHooksPath = path.join(factoryDir, "hooks.json");
   const devinDir = path.join(projectRoot, ".devin");
   const devinHooksPath = path.join(devinDir, "hooks.v1.json");
+  const codebuddyDir = path.join(projectRoot, ".codebuddy");
+  const codebuddySettingsPath = path.join(codebuddyDir, "settings.json");
   const agentsDir = path.join(projectRoot, ".agents");
   const antigravityHooksPath = path.join(agentsDir, "hooks.json");
   const mergePlatforms = Boolean(opts.mergePlatforms);
@@ -1955,6 +2030,10 @@ export function installInitYes(opts: InitYesOptions): InitResult {
     const wantAntigravity = platformsWantInstallableHost(effectivePlatforms, "antigravity");
     const wantPi = platformsWantInstallableHost(effectivePlatforms, "pi");
     const wantDevin = platformsWantInstallableHost(effectivePlatforms, "devin");
+    const wantCodebuddy = platformsWantInstallableHost(
+      effectivePlatforms,
+      "codebuddy",
+    );
     // DSH 是进程内插件宿主：不写 hooks.json，但 init 仍需为它建立
     // .autopilot/（config.yml + state.db + 计划目录骨架）。
     const wantDsh = platformsWantInstallableHost(effectivePlatforms, "dsh");
@@ -1978,13 +2057,14 @@ export function installInitYes(opts: InitYesOptions): InitResult {
       !wantAntigravity &&
       !wantPi &&
       !wantDevin &&
+      !wantCodebuddy &&
       !wantDsh &&
       !wantRunner
     ) {
       return {
         ok: false,
         error:
-          "No installable host platform to wire (need cursor, claude-code, codex, kimi-code, copilot-cli, grok-build, gemini-cli, factory-droid, hermes-agent, antigravity, pi, devin, dsh, and/or runner).",
+          "No installable host platform to wire (need cursor, claude-code, codex, kimi-code, copilot-cli, grok-build, gemini-cli, factory-droid, hermes-agent, antigravity, pi, devin, codebuddy, dsh, and/or runner).",
       };
     }
 
@@ -2099,6 +2179,19 @@ export function installInitYes(opts: InitYesOptions): InitResult {
       const devinPre = readDevinHooksFile(devinHooksPath);
       if (!devinPre.ok) {
         return { ok: false, error: devinPre.error };
+      }
+    }
+    if (wantCodebuddy) {
+      try {
+        assertNotSymlink(codebuddyDir, ".codebuddy/");
+        assertNotSymlink(codebuddySettingsPath, ".codebuddy/settings.json");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+      const codebuddyPre = readCodebuddySettingsFile(codebuddySettingsPath);
+      if (!codebuddyPre.ok) {
+        return { ok: false, error: codebuddyPre.error };
       }
     }
     if (wantAntigravity) {
@@ -2347,6 +2440,7 @@ export function installInitYes(opts: InitYesOptions): InitResult {
     let geminiFresh: GeminiSettingsRead | null = null;
     let factoryFresh: FactoryHooksRead | null = null;
     let devinFresh: DevinHooksRead | null = null;
+    let codebuddyFresh: CodebuddySettingsRead | null = null;
     let antigravityFresh: AntigravityHooksRead | null = null;
     let kimiFresh: ReturnType<typeof readKimiConfigToml> | null = null;
     let hermesFresh: ReturnType<typeof readHermesConfigYaml> | null = null;
@@ -2478,6 +2572,21 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         return { ok: false, error: msg };
       }
     }
+    if (wantCodebuddy) {
+      codebuddyFresh = readCodebuddySettingsFile(codebuddySettingsPath);
+      if (!codebuddyFresh.ok) {
+        rollbackFreshConfig();
+        return { ok: false, error: codebuddyFresh.error };
+      }
+      try {
+        assertNotSymlink(codebuddyDir, ".codebuddy/");
+        assertNotSymlink(codebuddySettingsPath, ".codebuddy/settings.json");
+      } catch (err) {
+        rollbackFreshConfig();
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+    }
     if (wantAntigravity) {
       antigravityFresh = readAntigravityHooksFile(antigravityHooksPath);
       if (!antigravityFresh.ok) {
@@ -2560,6 +2669,9 @@ export function installInitYes(opts: InitYesOptions): InitResult {
       if (wantDevin && devinFresh?.ok) {
         mergeDevinHooks(devinFresh.value);
       }
+      if (wantCodebuddy && codebuddyFresh?.ok) {
+        mergeCodebuddySettings(codebuddyFresh.value);
+      }
       if (wantAntigravity && antigravityFresh?.ok) {
         mergeAntigravityHooks(antigravityFresh.value);
       }
@@ -2608,6 +2720,11 @@ export function installInitYes(opts: InitYesOptions): InitResult {
           }),
         );
       }
+      if (wantCodebuddy) {
+        written.push(
+          ...installSkills(templatesRoot, projectRoot, locale, ".codebuddy"),
+        );
+      }
       if (wantCopilot) {
         written.push(
           ...installSkills(templatesRoot, projectRoot, locale, ".github"),
@@ -2643,6 +2760,8 @@ export function installInitYes(opts: InitYesOptions): InitResult {
     let mergedGemini: ReturnType<typeof mergeGeminiSettings> | null = null;
     let mergedFactory: ReturnType<typeof mergeFactoryHooks> | null = null;
     let mergedDevin: ReturnType<typeof mergeDevinHooks> | null = null;
+    let mergedCodebuddy: ReturnType<typeof mergeCodebuddySettings> | null =
+      null;
     let mergedAntigravity: ReturnType<typeof mergeAntigravityHooks> | null =
       null;
     let mergedKimi: string | null = null;
@@ -2735,6 +2854,21 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         assertNotSymlink(devinDir, ".devin/");
         assertNotSymlink(devinHooksPath, ".devin/hooks.v1.json");
         mergedDevin = mergeDevinHooks(devinFinal.value);
+      }
+      if (wantCodebuddy) {
+        const codebuddyFinal = readCodebuddySettingsFile(
+          codebuddySettingsPath,
+        );
+        if (!codebuddyFinal.ok) {
+          rollbackFreshConfig();
+          return { ok: false, error: codebuddyFinal.error };
+        }
+        assertNotSymlink(codebuddyDir, ".codebuddy/");
+        assertNotSymlink(
+          codebuddySettingsPath,
+          ".codebuddy/settings.json",
+        );
+        mergedCodebuddy = mergeCodebuddySettings(codebuddyFinal.value);
       }
       if (wantAntigravity) {
         const antigravityFinal = readAntigravityHooksFile(antigravityHooksPath);
@@ -2868,6 +3002,18 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         ".devin/",
       );
       written.push(path.relative(projectRoot, devinHooksPath));
+    }
+
+    if (mergedCodebuddy) {
+      mkdirRealDirSync(codebuddyDir, ".codebuddy/", projectRoot);
+      assertRealpathInside(projectRoot, codebuddyDir, ".codebuddy/");
+      writeFileAtomic(
+        codebuddySettingsPath,
+        JSON.stringify(mergedCodebuddy, null, 2) + "\n",
+        projectRoot,
+        ".codebuddy/",
+      );
+      written.push(path.relative(projectRoot, codebuddySettingsPath));
     }
 
     if (mergedAntigravity) {

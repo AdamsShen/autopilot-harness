@@ -18,6 +18,7 @@ export const PUBLIC_PACKAGE_JSON_PATHS = [
   "packages/ports/antigravity/package.json",
   "packages/ports/pi/package.json",
   "packages/ports/devin/package.json",
+  "packages/ports/codebuddy/package.json",
   "packages/ports/runner/package.json",
 ] as const;
 

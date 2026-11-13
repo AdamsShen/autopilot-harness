@@ -180,6 +180,9 @@ function skillHostsFromConfigYaml(yaml: string): {
   if (platformsWantInstallableHost(platforms, "devin")) {
     project.push(".devin");
   }
+  if (platformsWantInstallableHost(platforms, "codebuddy")) {
+    project.push(".codebuddy");
+  }
   if (platformsWantAgentsSkills(platforms)) {
     project.push(".agents");
   }

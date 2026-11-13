@@ -55,6 +55,13 @@ import {
   DEVIN_HOOKS_REL_PATH,
 } from "./init/devin-hooks-merge.js";
 import {
+  stripAutopilotCodebuddySettings,
+  codebuddySettingsContainAutopilot,
+  validateCodebuddySettingsShape,
+  type CodebuddySettingsFile,
+  CODEBUDDY_SETTINGS_REL_PATH,
+} from "./init/codebuddy-settings-merge.js";
+import {
   stripAutopilotAntigravityHooks,
   antigravityHooksContainAutopilot,
   antigravityHooksFileIsVacant,
@@ -629,6 +636,60 @@ function readDevinHooksFile(
   }
 }
 
+function readCodebuddySettingsFile(
+  settingsPath: string,
+):
+  | { ok: true; value: CodebuddySettingsFile | null }
+  | { ok: false; error: string } {
+  const label = CODEBUDDY_SETTINGS_REL_PATH;
+  try {
+    assertNotSymlink(settingsPath, label);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg };
+  }
+  try {
+    const st = fs.lstatSync(settingsPath);
+    if (st.isSymbolicLink()) {
+      return { ok: false, error: `${label} is a symlink; refusing to open` };
+    }
+    if (!st.isFile()) {
+      return {
+        ok: false,
+        error: `${label} exists and is not a regular file; refusing to uninstall`,
+      };
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") {
+      return { ok: true, value: null };
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Cannot access ${label}: ${msg}` };
+  }
+  try {
+    const raw = readUntrustedUtf8File(
+      settingsPath,
+      MAX_UNTRUSTED_TEXT_BYTES,
+      label,
+    );
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        error: `${label} is not a JSON object; fix or remove it before uninstall.`,
+      };
+    }
+    const file = parsed as CodebuddySettingsFile;
+    const shape = validateCodebuddySettingsShape(file);
+    if (shape) return { ok: false, error: `${label}: ${shape}` };
+    return { ok: true, value: file };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Cannot read ${label}: ${msg}` };
+  }
+}
+
 function readAntigravityHooksFile(
   hooksPath: string,
 ):
@@ -829,6 +890,7 @@ function projectWantsInstallableHosts(configPath: string): {
   pi: boolean;
   runner: boolean;
   devin: boolean;
+  codebuddy: boolean;
 } {
   try {
     const yaml = readUntrustedUtf8File(
@@ -850,6 +912,7 @@ function projectWantsInstallableHosts(configPath: string): {
       pi: configWantsInstallableHost(platforms, "pi"),
       runner: configWantsInstallableHost(platforms, "runner"),
       devin: configWantsInstallableHost(platforms, "devin"),
+      codebuddy: configWantsInstallableHost(platforms, "codebuddy"),
     };
   } catch {
     return {
@@ -865,6 +928,7 @@ function projectWantsInstallableHosts(configPath: string): {
       pi: false,
       runner: false,
       devin: false,
+      codebuddy: false,
     };
   }
 }
@@ -952,6 +1016,9 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
     const devinDir = path.join(projectRoot, ".devin");
     const devinHooksPath = path.join(devinDir, "hooks.v1.json");
     const devinSkillsRoot = path.join(devinDir, "skills");
+    const codebuddyDir = path.join(projectRoot, ".codebuddy");
+    const codebuddySettingsPath = path.join(codebuddyDir, "settings.json");
+    const codebuddySkillsRoot = path.join(codebuddyDir, "skills");
     const agentsDir = path.join(projectRoot, ".agents");
     const antigravityHooksPath = path.join(agentsDir, "hooks.json");
     const agentsSkillsRoot = path.join(agentsDir, "skills");
@@ -972,6 +1039,7 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
       pi: wantPi,
       runner: wantRunner,
       devin: wantDevin,
+      codebuddy: wantCodebuddy,
     } = projectWantsInstallableHosts(configPath);
     const wantAgentsSkills = wantAgentsSkillsFromFlags({
       antigravity: wantAntigravity,
@@ -1032,6 +1100,12 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
         dirs.push(
           [devinDir, ".devin/"],
           [devinSkillsRoot, ".devin/skills/"],
+        );
+      }
+      if (wantCodebuddy) {
+        dirs.push(
+          [codebuddyDir, ".codebuddy/"],
+          [codebuddySkillsRoot, ".codebuddy/skills/"],
         );
       }
       if (wantAgentsSkills) {
@@ -1108,6 +1182,13 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
             projectRoot,
             path.join(devinSkillsRoot, name),
             `.devin/skills/${name}`,
+          );
+        }
+        if (wantCodebuddy) {
+          assertRemovalTargetSafe(
+            projectRoot,
+            path.join(codebuddySkillsRoot, name),
+            `.codebuddy/skills/${name}`,
           );
         }
         if (wantAgentsSkills) {
@@ -1721,6 +1802,71 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
       }
     }
 
+    // --- CodeBuddy settings (.codebuddy/settings.json) ---
+    // Keep foreign settings keys; strip only Autopilot hook handlers.
+    const codebuddyLabel = CODEBUDDY_SETTINGS_REL_PATH;
+    const codebuddyPre = readCodebuddySettingsFile(codebuddySettingsPath);
+    if (!codebuddyPre.ok) {
+      if (wantCodebuddy) {
+        throw new Error(codebuddyPre.error);
+      }
+      actions.push(
+        `skip ${codebuddyLabel} (${formatUninstallSkipDetail(codebuddyPre.error)})`,
+      );
+    } else if (codebuddySettingsContainAutopilot(codebuddyPre.value)) {
+      const stripCodebuddySettings = (): void => {
+        assertNotSymlink(codebuddyDir, ".codebuddy/");
+        assertNotSymlink(codebuddySettingsPath, codebuddyLabel);
+        if (dryRun) {
+          found = true;
+          actions.push(`strip Autopilot entries from ${codebuddyLabel}`);
+          return;
+        }
+        const codebuddyFresh = readCodebuddySettingsFile(
+          codebuddySettingsPath,
+        );
+        if (!codebuddyFresh.ok) {
+          throw new Error(codebuddyFresh.error);
+        }
+        const freshSettings = codebuddyFresh.value;
+        if (
+          freshSettings == null ||
+          !codebuddySettingsContainAutopilot(freshSettings)
+        ) {
+          found = true;
+          actions.push(`strip Autopilot entries from ${codebuddyLabel}`);
+          actions.push(
+            `${codebuddyLabel} no longer has Autopilot entries (skipped write)`,
+          );
+          return;
+        }
+        const stripped = stripAutopilotCodebuddySettings(freshSettings);
+        writeJsonAtomic(
+          codebuddySettingsPath,
+          JSON.stringify(stripped, null, 2) + "\n",
+          projectRoot,
+          codebuddyLabel,
+        );
+        found = true;
+        hooksStripped = true;
+        actions.push(`strip Autopilot entries from ${codebuddyLabel}`);
+        removed.push(
+          path.relative(projectRoot, codebuddySettingsPath) +
+            " (Autopilot entries)",
+        );
+      };
+
+      try {
+        stripCodebuddySettings();
+      } catch (err) {
+        if (wantCodebuddy) throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        actions.push(
+          `skip ${codebuddyLabel} (${formatUninstallSkipDetail(msg)})`,
+        );
+      }
+    }
+
     // --- Antigravity hooks (.agents/hooks.json) ---
     // Named autopilot-harness block; keep foreign named blocks / siblings.
     // Vacant after strip → unlink hooks.json only. Never touch .agent/.
@@ -2229,6 +2375,36 @@ export function uninstallProject(opts: UninstallOptions): UninstallResult {
         const msg = err instanceof Error ? err.message : String(err);
         actions.push(
           `skip .devin/skills/${name} (${formatUninstallSkipDetail(msg)})`,
+        );
+      }
+    }
+
+    // --- CodeBuddy skills (.codebuddy/skills) ---
+    for (const name of AUTOPILOT_SKILL_NAMES) {
+      const skillDir = path.join(codebuddySkillsRoot, name);
+      if (!pathExistsViaLstat(skillDir)) continue;
+      try {
+        if (!wantCodebuddy) {
+          assertRemovalTargetSafe(
+            projectRoot,
+            skillDir,
+            `.codebuddy/skills/${name}`,
+          );
+        }
+        found = true;
+        safeRemovePath(
+          projectRoot,
+          skillDir,
+          `.codebuddy/skills/${name}`,
+          removed,
+          dryRun,
+          actions,
+        );
+      } catch (err) {
+        if (wantCodebuddy) throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        actions.push(
+          `skip .codebuddy/skills/${name} (${formatUninstallSkipDetail(msg)})`,
         );
       }
     }

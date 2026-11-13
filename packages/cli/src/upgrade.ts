@@ -59,6 +59,11 @@ import {
   DEVIN_HOOKS_REL_PATH,
 } from "./init/devin-hooks-merge.js";
 import {
+  validateCodebuddySettingsShape,
+  type CodebuddySettingsFile,
+  CODEBUDDY_SETTINGS_REL_PATH,
+} from "./init/codebuddy-settings-merge.js";
+import {
   validateAntigravityHooksShape,
   type AntigravityHooksFile,
   ANTIGRAVITY_HOOKS_REL_PATH,
@@ -111,6 +116,7 @@ function preflightHostSettings(
   wantAntigravity: boolean,
   wantPi: boolean = false,
   wantDevin: boolean = false,
+  wantCodebuddy: boolean = false,
 ): { ok: true } | { ok: false; error: string } {
   if (wantCursor) {
     const hooksPath = path.join(projectRoot, ".cursor", "hooks.json");
@@ -413,6 +419,46 @@ function preflightHostSettings(
         return { ok: false, error: `Cannot read ${hooksPath}: ${msg}` };
       }
       // Missing hooks.v1.json is OK — force refresh will create it.
+    }
+  }
+
+  if (wantCodebuddy) {
+    const settingsPath = path.join(
+      projectRoot,
+      ".codebuddy",
+      "settings.json",
+    );
+    try {
+      assertNotSymlink(path.join(projectRoot, ".codebuddy"), ".codebuddy/");
+      assertNotSymlink(settingsPath, CODEBUDDY_SETTINGS_REL_PATH);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+    try {
+      const raw = readUntrustedUtf8File(
+        settingsPath,
+        MAX_UNTRUSTED_TEXT_BYTES,
+        CODEBUDDY_SETTINGS_REL_PATH,
+      );
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {
+          ok: false,
+          error: `${settingsPath} is not a JSON object; fix or remove it before upgrade.`,
+        };
+      }
+      const shape = validateCodebuddySettingsShape(
+        parsed as CodebuddySettingsFile,
+      );
+      if (shape) return { ok: false, error: `${settingsPath}: ${shape}` };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== "ENOENT") {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: `Cannot read ${settingsPath}: ${msg}` };
+      }
+      // Missing settings.json is OK — force refresh will create it.
     }
   }
 
@@ -822,6 +868,7 @@ export function upgradeProject(opts: UpgradeOptions): UpgradeResult {
     const wantAntigravity = configWantsInstallableHost(platforms, "antigravity");
     const wantPi = configWantsInstallableHost(platforms, "pi");
     const wantDevin = configWantsInstallableHost(platforms, "devin");
+    const wantCodebuddy = configWantsInstallableHost(platforms, "codebuddy");
     if (wantCursor) {
       actions.push("refresh .cursor/skills/autopilot-*");
       actions.push("merge .cursor/hooks.json (Autopilot entries)");
@@ -862,6 +909,12 @@ export function upgradeProject(opts: UpgradeOptions): UpgradeResult {
       actions.push("refresh .devin/skills/autopilot-*");
       actions.push(
         `merge ${DEVIN_HOOKS_REL_PATH} (Autopilot entries; not config.json)`,
+      );
+    }
+    if (wantCodebuddy) {
+      actions.push("refresh .codebuddy/skills/autopilot-*");
+      actions.push(
+        `merge ${CODEBUDDY_SETTINGS_REL_PATH} (Autopilot hooks; UPS continue:false; Stop exit 2 + loop_limit -1)`,
       );
     }
     if (wantHermes) {
@@ -911,6 +964,7 @@ export function upgradeProject(opts: UpgradeOptions): UpgradeResult {
       wantAntigravity,
       wantPi,
       wantDevin,
+      wantCodebuddy,
     );
     if (!hostPre.ok) {
       return { ok: false, error: hostPre.error };

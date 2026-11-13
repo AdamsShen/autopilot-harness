@@ -38,6 +38,9 @@ export const DEFAULT_AUTOPILOT_IGNORE_TEXT = `# Autopilot — paths that do NOT 
 .pi/extensions/autopilot*
 .devin/hooks.v1.json
 .devin/skills/**
+.codebuddy/settings.json
+.codebuddy/settings.local.json
+.codebuddy/skills/**
 
 # Planning / track artifacts (legacy root + new default portal)
 plans/**

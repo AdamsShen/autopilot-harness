@@ -144,6 +144,18 @@ import {
   probeDevinCliVersion,
 } from "./init/devin-cli.js";
 import {
+  CODEBUDDY_HOOK_TIMEOUT_SEC,
+  CODEBUDDY_SETTINGS_REL_PATH,
+  codebuddyAutopilotHasOmittedIdeLoopLimit,
+  codebuddyAutopilotHasOmittedOrSmallTimeout,
+  codebuddyHooksHavePlatformStamp,
+  codebuddySettingsContainAutopilot,
+  hasCompleteCodebuddyAutopilotHooks,
+  summarizeCodebuddyAutopilotHooks,
+  validateCodebuddySettingsShape,
+  type CodebuddySettingsFile,
+} from "./init/codebuddy-settings-merge.js";
+import {
   COPILOT_STOP_CAP_RAISE_FOUND,
   COPILOT_STOP_CONSECUTIVE_BLOCK_CAP,
 } from "@autopilot-harness/port-copilot-cli";
@@ -2108,6 +2120,154 @@ export function runDoctor(
           `WARN  leftover ${DEVIN_CONFIG_REL_PATH} Autopilot hooks (devin not in platforms) — Autopilot does not strip config.json; remove manually or add-platform devin`,
         );
       }
+    }
+  }
+
+  const wantCodebuddy = configWantsInstallableHost(cfg.platforms, "codebuddy");
+  if (wantCodebuddy) {
+    const codebuddySettingsPath = path.join(
+      root,
+      ".codebuddy",
+      "settings.json",
+    );
+    lines.push(
+      "WARN  CodeBuddy Code Stop-continue: CLI needs blocking (exit 2 + stderr) for Stop; IDE defaults to 1 continue/turn and needs loop_limit: -1 (init writes it) — mid-chain cutoff → /autopilot-resume",
+    );
+    lines.push(
+      "WARN  CodeBuddy Code: hooks do not hot-reload — review hooks in /hooks after install or upgrade, then start a new session",
+    );
+    try {
+      const raw = readUntrustedUtf8File(
+        codebuddySettingsPath,
+        MAX_CONFIG_BYTES,
+        CODEBUDDY_SETTINGS_REL_PATH,
+      );
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        lines.push(`FAIL  ${CODEBUDDY_SETTINGS_REL_PATH} is not a JSON object`);
+        ok = false;
+      } else {
+        const file = parsed as CodebuddySettingsFile;
+        const shapeError = validateCodebuddySettingsShape(file);
+        if (shapeError) {
+          lines.push(
+            `FAIL  ${CODEBUDDY_SETTINGS_REL_PATH}: ${safeDisplayToken(shapeError, "invalid shape")}`,
+          );
+          ok = false;
+        } else {
+          const { missingEvents, duplicates } =
+            summarizeCodebuddyAutopilotHooks(file);
+          const badTimeout =
+            codebuddyAutopilotHasOmittedOrSmallTimeout(file);
+          const hasStamp = codebuddyHooksHavePlatformStamp(file);
+          if (missingEvents.length > 0) {
+            lines.push(
+              `FAIL  ${CODEBUDDY_SETTINGS_REL_PATH} missing Autopilot for: ${missingEvents.join(", ")} — run init --force`,
+            );
+            ok = false;
+          }
+          if (duplicates > 0) {
+            lines.push(
+              `WARN  ${CODEBUDDY_SETTINGS_REL_PATH} has ${duplicates} duplicate Autopilot entr(y/ies)`,
+            );
+          }
+          if (badTimeout) {
+            lines.push(
+              `WARN  Autopilot CodeBuddy hook timeout below ${CODEBUDDY_HOOK_TIMEOUT_SEC} (or omitted) — run upgrade`,
+            );
+          }
+          if (codebuddyAutopilotHasOmittedIdeLoopLimit(file)) {
+            lines.push(
+              "WARN  Autopilot CodeBuddy Stop hook missing loop_limit: -1 — the IDE resumes only once per turn; run upgrade",
+            );
+          }
+          if (missingEvents.length === 0 && !hasStamp) {
+            lines.push(
+              "WARN  Autopilot CodeBuddy hooks missing --platform codebuddy — run upgrade",
+            );
+          }
+          if (
+            missingEvents.length === 0 &&
+            duplicates === 0 &&
+            !badTimeout &&
+            hasStamp &&
+            hasCompleteCodebuddyAutopilotHooks(file)
+          ) {
+            lines.push(
+              `OK    ${CODEBUDDY_SETTINGS_REL_PATH} Autopilot entries`,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === "ENOENT") {
+        lines.push(`FAIL  ${CODEBUDDY_SETTINGS_REL_PATH} missing`);
+        ok = false;
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        lines.push(
+          `FAIL  ${CODEBUDDY_SETTINGS_REL_PATH} unreadable (${safeDisplayToken(msg, "error")})`,
+        );
+        ok = false;
+      }
+    }
+
+    // settings.local.json 优先级更高，若残留 Autopilot 会与项目级 hooks 双触发。
+    try {
+      const rawLocal = readUntrustedUtf8File(
+        path.join(root, ".codebuddy", "settings.local.json"),
+        MAX_CONFIG_BYTES,
+        ".codebuddy/settings.local.json",
+      );
+      const parsedLocal: unknown = JSON.parse(rawLocal);
+      if (codebuddySettingsContainAutopilot(parsedLocal)) {
+        lines.push(
+          "WARN  .codebuddy/settings.local.json still lists Autopilot — it overrides the project file; remove Autopilot hooks there to avoid double-fire",
+        );
+      }
+    } catch {
+      /* missing / unreadable — ignore */
+    }
+
+    let hasCodebuddySkills = false;
+    for (const name of SKILL_NAMES) {
+      try {
+        const st = fs.lstatSync(
+          path.join(root, ".codebuddy", "skills", name, "SKILL.md"),
+        );
+        if (st.isSymbolicLink() || !st.isFile()) continue;
+        assertRealpathInside(
+          root,
+          path.join(root, ".codebuddy", "skills", name, "SKILL.md"),
+          `.codebuddy/skills/${name}/SKILL.md`,
+        );
+        hasCodebuddySkills = true;
+      } catch {
+        /* missing / escape */
+      }
+    }
+    if (!hasCodebuddySkills) {
+      lines.push(
+        "WARN  .codebuddy/skills/autopilot-* missing — run init --force (slash /autopilot-* will not load)",
+      );
+    }
+  } else {
+    try {
+      const raw = readUntrustedUtf8File(
+        path.join(root, ".codebuddy", "settings.json"),
+        MAX_CONFIG_BYTES,
+        CODEBUDDY_SETTINGS_REL_PATH,
+      );
+      if (
+        codebuddySettingsContainAutopilot(JSON.parse(raw) as unknown)
+      ) {
+        lines.push(
+          `WARN  leftover ${CODEBUDDY_SETTINGS_REL_PATH} Autopilot fingerprint (codebuddy not in platforms) — uninstall or add-platform codebuddy`,
+        );
+      }
+    } catch {
+      /* missing / unreadable — ignore */
     }
   }
 
