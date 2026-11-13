@@ -40,7 +40,7 @@ npx @autopilot-harness/cli doctor
 | `pi` | cli（进程内） | `init --platform pi --yes` | Autopilot **禁止** `pi install` | `/trust` 再 `/reload`；**仅 TUI** |
 | `devin` | cli | `init --platform devin --yes` | 本版仅文档 / `npx` | `$DEVIN_PROJECT_DIR`；`/hooks`；**仅 CLI** |
 | `codebuddy` | cli | `init --platform codebuddy --yes` | 本版仅文档 / `npx` | 查看 `/hooks`；新开会话（启动时快照设置） |
-| `dsh` | cli（进程内插件） | `init --platform dsh --yes` | **无宿主市场** — 在 DSH profile 里安装 `dsh-autopilot` | 在 `~/.dsh/cordis.patch.yml` 加 patch 条目；进程内，**不写 hooks.json** |
+| `dsh` | cli（进程内插件） | `init --platform dsh --yes` | **无宿主市场** — 在 DSH profile 里安装 `@autopilot-harness/port-dsh` | 在 `~/.dsh/cordis.patch.yml` 加 patch 条目；进程内，**不写 hooks.json** |
 | `runner` | runner | `init --yes --add-platform runner`（或首装 `init --platform runner --yes`） | **仅 npm / 文档** — 无宿主 marketplace 插件 | 配置 `runner.command`；`runner start …` |
 
 **OpenCode** 仍在路线图 — `init` **不会**安装。请用已发宿主或 Runner，直到上游 stop-continue 就绪。
@@ -134,13 +134,13 @@ npx @autopilot-harness/cli doctor
 3. **加载插件：** 包内声明了 `dsh.bundle.patch`，只要进入 profile 的 bundles 列表，DSH 就会自动组合：
 
    ```bash
-   dsh plugin --profile <name> add dsh-autopilot
+   dsh plugin --profile <name> add @autopilot-harness/port-dsh
    ```
 
    然后确认它出现在 `~/.dsh/profiles/<name>/package.json` 的 `dsh.profile.bundles` 中（`plugin add` 只装依赖，**不会**自动追加 bundle 条目）。
 
-   包内 `cordis.patch.yml` 会注册 `autopilot-harness`（`name: 'dsh-autopilot/plugin'`）。用 `dsh --profile <name> --dump-config` 验证：组合后的配置树中应出现 `- id: autopilot-harness`。
-4. **Doctor：** 重启 profile；Autopilot 会注册 5 个钩子（`agent/disposed`、`agent/error`、`agent/pre-step`、`tools/post-execute`、`agent/turn-stopping`）和 5 个命令。然后 `/autopilot-on`。续跑走 `agent.steer()` —— DSH **没有已知的 stop 续跑上限**，所以 `confirm_rounds: 5` 可原样生效。
+   包内 `cordis.patch.yml` 会注册 `autopilot-harness`（`name: '@autopilot-harness/port-dsh/plugin'`）。用 `dsh --profile <name> --dump-config` 验证：组合后的配置树中应出现 `- id: autopilot-harness`。
+4. **Doctor：** 重启 profile；Autopilot 会注册 5 个钩子（`agent/disposed`、`agent/error`、`agent/pre-step`、`tools/post-execute`、`agent/turn-stopping`）和 6 个命令（`autopilot-enable` + `on` / `run` / `off` / `replan` / `resume` 状态机命令）。然后 `/autopilot-on`。续跑走 `agent.steer()` —— DSH **没有已知的 stop 续跑上限**，所以 `confirm_rounds: 5` 可原样生效。
 ### runner
 
 1. **发现：** 仅 npm / 文档 — 无宿主 marketplace 插件。

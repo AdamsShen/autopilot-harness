@@ -192,7 +192,7 @@ More commands and skills: [docs/autopilot/quickstart.md](./docs/autopilot/quicks
 | `@autopilot-harness/port-pi` | Pi in-process extension adapter (`agent_settled` continue; soft min ≥0.85.1; R10 TUI only; **Shipped**) |
 | `@autopilot-harness/port-devin` | Devin CLI hook adapter (Stop `decision:block`+`reason`; `$DEVIN_PROJECT_DIR`; CLI only; **Shipped**) |
 | `@autopilot-harness/port-codebuddy` | CodeBuddy Code hook adapter (UPS `continue:false`; Stop `exit 2`+stderr so CLI re-invokes; `.codebuddy/settings.json`; **Shipped**) |
-| `dsh-autopilot` | DeepSeek Harness in-process plugin adapter (Stop = `agent.steer()`; no hooks.json; no known cap; **Shipped**) |
+| `@autopilot-harness/port-dsh` | DeepSeek Harness in-process plugin adapter (Stop = `agent.steer()`; no hooks.json; no known cap; **Shipped**) |
 | `@autopilot-harness/port-runner` | Runner external-loop adapter (`runner start`; Shipped meta) |
 
 ## Development

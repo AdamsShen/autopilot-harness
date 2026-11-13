@@ -23,7 +23,7 @@
 ### 1.1 装插件到 DSH profile
 
 ```bash
-dsh plugin --profile <profile名> add dsh-autopilot
+dsh plugin --profile <profile名> add @autopilot-harness/port-dsh
 ```
 
 > 不确定 profile 名？默认是 `desktop`。可用 `ls ~/.dsh/profiles/` 查看。
@@ -43,7 +43,7 @@ dsh plugin --profile <profile名> add dsh-autopilot
       "bundles": [
         "@deepseek-ai/dsh-base",
         "@deepseek-ai/dsh-web-app",
-        "dsh-autopilot"
+        "@autopilot-harness/port-dsh"
       ]
     }
   }
@@ -60,7 +60,7 @@ dsh --profile <profile名> --dump-config | grep autopilot
 
 ```yaml
 - id: autopilot-harness
-  name: 'dsh-autopilot/plugin'
+  name: '@autopilot-harness/port-dsh/plugin'
   config:
     autoInit: false
     maxSteerPerTurn: 32
@@ -293,7 +293,7 @@ review:
 
 ```json
 {
-  "name": "dsh-autopilot/plugin",
+  "name": "@autopilot-harness/port-dsh/plugin",
   "config": {
     "autoInit": false,
     "maxSteerPerTurn": 32,
@@ -326,7 +326,7 @@ ls ~/.dsh/profiles/<profile>/node_modules/@autopilot-harness/
 python3 -c "import json;print(json.load(open('$HOME/.dsh/profiles/<profile>/package.json'))['dsh']['profile']['bundles'])"
 
 # 3. 能加载吗
-cd ~/.dsh/profiles/<profile> && node -e "import('dsh-autopilot/plugin').then(m=>console.log(m.name))"
+cd ~/.dsh/profiles/<profile> && node -e "import('@autopilot-harness/port-dsh/plugin').then(m=>console.log(m.name))"
 ```
 
 前两项都正常的话，**重启 DSH**。
@@ -338,7 +338,7 @@ cd ~/.dsh/profiles/<profile> && node -e "import('dsh-autopilot/plugin').then(m=>
 这是旧版本的 bug（已修）。如果还出现，说明 profile 里是旧代码：
 
 ```bash
-cd <dsh-autopilot 仓库> && npm run build
+cd <@autopilot-harness/port-dsh 仓库> && npm run build
 # 然后重启 DSH
 ```
 
@@ -412,7 +412,7 @@ rm -rf <项目>/.autopilot/ <项目>/docs/autopilot/
 ```bash
 # 1. 从 bundles 移除（编辑 package.json）
 # 2. 卸依赖
-dsh plugin --profile <profile> remove dsh-autopilot
+dsh plugin --profile <profile> remove @autopilot-harness/port-dsh
 # 3. 重启 DSH
 ```
 
@@ -431,8 +431,8 @@ find ~/code -maxdepth 3 -name ".autopilot" -type d 2>/dev/null
 
 ```bash
 # ① 装（一次性）
-dsh plugin --profile desktop add dsh-autopilot
-# 手动把 dsh-autopilot 加进 package.json 的 dsh.profile.bundles
+dsh plugin --profile desktop add @autopilot-harness/port-dsh
+# 手动把 @autopilot-harness/port-dsh 加进 package.json 的 dsh.profile.bundles
 # 重启 DSH
 
 # ② 启用（每个项目一次）

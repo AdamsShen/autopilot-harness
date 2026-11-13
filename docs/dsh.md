@@ -1,8 +1,8 @@
 # DeepSeek Harness (DSH) Port
 
-How `dsh-autopilot` plugs Autopilot into DeepSeek Harness.
+How `@autopilot-harness/port-dsh` plugs Autopilot into DeepSeek Harness.
 
-> **Source split:** the plugin lives in its own repository, **`dsh-autopilot`** (sibling of `autopilot-harness`), published as `dsh-autopilot`. This document describes its behaviour; commands like `npm test` run in that repo.
+> **Source:** the port ships **in this repository** as **`@autopilot-harness/port-dsh`** (`packages/ports/dsh`), published under the same name. This document describes its behaviour; `pnpm test` / `pnpm --filter @autopilot-harness/port-dsh run typecheck` run here. Wiring is the same port shape as every other host — the only substitution is that DSH hooks become in-process `ctx.on` events (see below).
 
 Related: [install.md](./install.md) (per-host matrix) · [hosts.md](./hosts.md) (capability table) · [architecture.md](./architecture.md) (core/port split) · [config.md](./config.md) (config semantics).
 
@@ -115,11 +115,11 @@ All listeners are wrapped in `try/catch` and **fail open**: an Autopilot bug mus
 
 | Layer | File | Role |
 |---|---|---|
-| Profile wiring | `~/.dsh/profiles/<profile>/package.json` | lists `dsh-autopilot` under `dsh.profile.bundles` |
-| Bundle declaration | `dsh-autopilot/package.json` | `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` |
-| Loader entry | `dsh-autopilot/cordis.patch.yml` | `- id: autopilot-harness` / `name: 'dsh-autopilot/plugin'` + plugin config |
-| **Hook registration** | **`dsh-autopilot/src/plugin.ts`** | **`ctx.on(<event>, handler)` inside `apply(ctx, config)`** |
-| Event name types | `dsh-autopilot/src/dsh-events.d.ts` | compile-time declarations only; erased at runtime |
+| Profile wiring | `~/.dsh/profiles/<profile>/package.json` | lists `@autopilot-harness/port-dsh` under `dsh.profile.bundles` |
+| Bundle declaration | `packages/ports/dsh/package.json` | `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` |
+| Loader entry | `packages/ports/dsh/cordis.patch.yml` | `- id: autopilot-harness` / `name: '@autopilot-harness/port-dsh/plugin'` + plugin config |
+| **Hook registration** | **`packages/ports/dsh/src/plugin.ts`** | **`ctx.on(<event>, handler)` inside `apply(ctx, config)`** |
+| Event name types | `packages/ports/dsh/src/dsh-events.d.ts` | compile-time declarations only; erased at runtime |
 
 `cordis.patch.yml` contains **no hook declarations** — its only job is to make DSH load the plugin. The event names it mentions appear only in comments. Registration happens at runtime in `plugin.ts` (line numbers are indicative — grep `ctx.on(` if the file has moved):
 
@@ -145,7 +145,7 @@ Traditional hook host (Claude Code, Cursor, Codex …)
 
 DSH (in-process plugin)
   cordis.patch.yml
-    name: 'dsh-autopilot/plugin'        ← loads the package
+    name: '@autopilot-harness/port-dsh/plugin'        ← loads the package
   → plugin.apply(ctx)  →  ctx.on("agent/turn-stopping", fn)
   → the host calls fn(...) in the same process, no subprocess, no JSON protocol
 ```
@@ -323,7 +323,7 @@ Resolution order:
 ### 7.1 Installing the plugin
 
 ```bash
-dsh plugin --profile <profile> add dsh-autopilot
+dsh plugin --profile <profile> add @autopilot-harness/port-dsh
 ```
 
 This only:
@@ -337,7 +337,7 @@ This only:
 // ~/.dsh/profiles/<profile>/package.json
 "dsh": {
   "profile": {
-    "bundles": [..., "dsh-autopilot"]
+    "bundles": [..., "@autopilot-harness/port-dsh"]
   }
 }
 ```
@@ -355,7 +355,7 @@ dsh --profile <profile> --dump-config | grep autopilot-harness
 Without it, `plugin add` prints:
 
 ```
-dsh: warning: dsh-autopilot declares no dsh.bundle
+dsh: warning: @autopilot-harness/port-dsh declares no dsh.bundle
      — installed as a plain dependency, not a profile layer
 ```
 
@@ -370,7 +370,7 @@ and `cordis.patch.yml` holds the loader entry:
 ```yaml
 - insert:
     - id: autopilot-harness
-      name: 'dsh-autopilot/plugin'
+      name: '@autopilot-harness/port-dsh/plugin'
       config:
         autoInit: false
         maxSteerPerTurn: 32
@@ -552,8 +552,8 @@ Text triggers also work without the command surface (`Autopilot ON`, `开启自�
 ## 12. Testing
 
 ```bash
-pnpm --filter dsh-autopilot run typecheck
-npm test   # in the dsh-autopilot repo
+pnpm --filter @autopilot-harness/port-dsh run typecheck
+npx vitest run packages/ports/dsh   # from the repo root
 ```
 
 | Suite | Covers |

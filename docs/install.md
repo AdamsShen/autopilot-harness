@@ -40,7 +40,7 @@ Interactive TUI: omit `--yes`. Flags: `npx @autopilot-harness/cli init --help`.
 | `pi` | cli (in-process) | `init --platform pi --yes` | **Never** `pi install` for Autopilot | `/trust` then `/reload`; **TUI only** |
 | `devin` | cli | `init --platform devin --yes` | Docs / `npx` only this release | `$DEVIN_PROJECT_DIR`; `/hooks`; **CLI only** |
 | `codebuddy` | cli | `init --platform codebuddy --yes` | Docs / `npx` only this release | `/hooks` review; new session (settings snapshot) |
-| `dsh` | cli (in-process) | `init --platform dsh --yes` | **No host marketplace** — install `dsh-autopilot` in the DSH profile | Add patch entry in `~/.dsh/cordis.patch.yml`; in-process, **no hooks.json** |
+| `dsh` | cli (in-process) | `init --platform dsh --yes` | **No host marketplace** — install `@autopilot-harness/port-dsh` in the DSH profile | Add patch entry in `~/.dsh/cordis.patch.yml`; in-process, **no hooks.json** |
 | `runner` | runner | `init --yes --add-platform runner` (or `init --platform runner --yes` as first host) | **npm / docs only** — no host marketplace plugin | Set `runner.command`; `npx @autopilot-harness/cli runner start …` |
 
 **OpenCode** is roadmap-only — `init` does **not** install it. Use another shipped host or Runner until upstream stop-continue ships.
@@ -133,14 +133,14 @@ Interactive TUI: omit `--yes`. Flags: `npx @autopilot-harness/cli init --help`.
 2. **Init:** `npx @autopilot-harness/cli init --platform dsh --yes` (writes `.autopilot/` config + state DB; **no** hook merge).
 3. **Load the plugin:** the package declares `dsh.bundle.patch`, so DSH composes it automatically once it is in the profile's bundle list:
    ```bash
-   dsh plugin --profile <name> add dsh-autopilot
+   dsh plugin --profile <name> add @autopilot-harness/port-dsh
    ```
    Then ensure it is listed under `dsh.profile.bundles` in `~/.dsh/profiles/<name>/package.json` (`plugin add` installs the dependency but does **not** append the bundle entry):
    ```json
-   "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "dsh-autopilot"]
+   "bundles": ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app", "@autopilot-harness/port-dsh"]
    ```
-   The bundled `cordis.patch.yml` registers `autopilot-harness` with `name: 'dsh-autopilot/plugin'`. Verify with `dsh --profile <name> --dump-config` — the composed tree must contain `- id: autopilot-harness`.
-4. **Doctor:** restart the profile; Autopilot registers 5 hooks (`agent/disposed`, `agent/error`, `agent/pre-step`, `tools/post-execute`, `agent/turn-stopping`) and 5 commands. Then `/autopilot-on`. Continue is `agent.steer()` — DSH has **no known stop-continue cap**, so `confirm_rounds: 5` works unclamped.
+   The bundled `cordis.patch.yml` registers `autopilot-harness` with `name: '@autopilot-harness/port-dsh/plugin'`. Verify with `dsh --profile <name> --dump-config` — the composed tree must contain `- id: autopilot-harness`.
+4. **Doctor:** restart the profile; Autopilot registers 5 hooks (`agent/disposed`, `agent/error`, `agent/pre-step`, `tools/post-execute`, `agent/turn-stopping`) and 6 commands (`autopilot-enable` plus the `on` / `run` / `off` / `replan` / `resume` state-machine commands). Then `/autopilot-on`. Continue is `agent.steer()` — DSH has **no known stop-continue cap**, so `confirm_rounds: 5` works unclamped.
 
 ### runner
 

@@ -1,8 +1,8 @@
 # DeepSeek Harness (DSH) 端口
 
-`dsh-autopilot` 如何把 Autopilot 接进 DeepSeek Harness。
+`@autopilot-harness/port-dsh` 如何把 Autopilot 接进 DeepSeek Harness。
 
-> **源码位置：** 插件已拆到独立仓库 **`dsh-autopilot`**（与 `autopilot-harness` 同级），发布为 `dsh-autopilot`。本文描述其行为；`npm test` 等命令在该仓库内运行。
+> **源码位置：** 端口就在本仓 **`packages/ports/dsh`**（包名 `@autopilot-harness/port-dsh`），发布名相同。本文描述其行为；`pnpm test` / `pnpm --filter @autopilot-harness/port-dsh run typecheck` 在本仓运行。接入形态与其它宿主完全一致，唯一差别是把 hooks 换成 DSH 自己的进程内 `ctx.on` 事件（见下）。
 
 相关：[install.zh-CN.md](./install.zh-CN.md)（安装矩阵）· [hosts.md](./hosts.md)（宿主能力）· [architecture.md](./architecture.md)（core/port 分层）· [config.md](./config.md)（配置语义）。
 
@@ -114,11 +114,11 @@ DSH 没有 `loop_limit` / block-cap 之类的机制。所以本端口**不 clamp
 
 | 层次 | 文件 | 职责 |
 |---|---|---|
-| Profile 接线 | `~/.dsh/profiles/<profile>/package.json` | 把 `dsh-autopilot` 列进 `dsh.profile.bundles` |
-| Bundle 声明 | `dsh-autopilot/package.json` | `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` |
-| Loader 条目 | `dsh-autopilot/cordis.patch.yml` | `- id: autopilot-harness` / `name: 'dsh-autopilot/plugin'` + 插件配置 |
-| **钩子注册** | **`dsh-autopilot/src/plugin.ts`** | **`apply(ctx, config)` 内调用 `ctx.on(<事件>, handler)`** |
-| 事件名类型 | `dsh-autopilot/src/dsh-events.d.ts` | 仅编译期声明，运行时被擦除 |
+| Profile 接线 | `~/.dsh/profiles/<profile>/package.json` | 把 `@autopilot-harness/port-dsh` 列进 `dsh.profile.bundles` |
+| Bundle 声明 | `packages/ports/dsh/package.json` | `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }` |
+| Loader 条目 | `packages/ports/dsh/cordis.patch.yml` | `- id: autopilot-harness` / `name: '@autopilot-harness/port-dsh/plugin'` + 插件配置 |
+| **钩子注册** | **`packages/ports/dsh/src/plugin.ts`** | **`apply(ctx, config)` 内调用 `ctx.on(<事件>, handler)`** |
+| 事件名类型 | `packages/ports/dsh/src/dsh-events.d.ts` | 仅编译期声明，运行时被擦除 |
 
 `cordis.patch.yml` **没有任何钩子声明**——它唯一的职责是让 DSH 加载这个插件。里面出现的钩子名只在注释中。真正的注册发生在运行时，位于 `plugin.ts`（行号仅供参考，文件变动后请 grep `ctx.on(`）：
 
@@ -144,7 +144,7 @@ DSH 没有 `loop_limit` / block-cap 之类的机制。所以本端口**不 clamp
 
 DSH（进程内插件）
   cordis.patch.yml
-    name: 'dsh-autopilot/plugin'        ← 加载包
+    name: '@autopilot-harness/port-dsh/plugin'        ← 加载包
   → plugin.apply(ctx)  →  ctx.on("agent/turn-stopping", fn)
   → 宿主在同一进程内直接调 fn(...)，无子进程、无 JSON 协议
 ```
@@ -322,7 +322,7 @@ readonly cwd?: string;
 ### 7.1 安装
 
 ```bash
-dsh plugin --profile <profile> add dsh-autopilot
+dsh plugin --profile <profile> add @autopilot-harness/port-dsh
 ```
 
 它只做两件事：
@@ -336,7 +336,7 @@ dsh plugin --profile <profile> add dsh-autopilot
 // ~/.dsh/profiles/<profile>/package.json
 "dsh": {
   "profile": {
-    "bundles": [..., "dsh-autopilot"]
+    "bundles": [..., "@autopilot-harness/port-dsh"]
   }
 }
 ```
@@ -354,7 +354,7 @@ dsh --profile <profile> --dump-config | grep autopilot-harness
 没有它时，`plugin add` 会打印：
 
 ```
-dsh: warning: dsh-autopilot declares no dsh.bundle
+dsh: warning: @autopilot-harness/port-dsh declares no dsh.bundle
      — installed as a plain dependency, not a profile layer
 ```
 
@@ -369,7 +369,7 @@ dsh: warning: dsh-autopilot declares no dsh.bundle
 ```yaml
 - insert:
     - id: autopilot-harness
-      name: 'dsh-autopilot/plugin'
+      name: '@autopilot-harness/port-dsh/plugin'
       config:
         autoInit: false
         maxSteerPerTurn: 32
@@ -551,8 +551,8 @@ config:
 ## 12. 测试
 
 ```bash
-pnpm --filter dsh-autopilot run typecheck
-npm test   # 在 dsh-autopilot 仓库内
+pnpm --filter @autopilot-harness/port-dsh run typecheck
+npx vitest run packages/ports/dsh   # 在本仓根目录运行
 ```
 
 | 套件 | 覆盖 |
