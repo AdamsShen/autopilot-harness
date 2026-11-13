@@ -135,6 +135,14 @@ await esbuild.build({
       "src",
       "index.ts",
     ),
+    "@autopilot-harness/port-codebuddy": path.join(
+      repoRoot,
+      "packages",
+      "ports",
+      "codebuddy",
+      "src",
+      "index.ts",
+    ),
     "@autopilot-harness/i18n": path.join(
       repoRoot,
       "packages",

@@ -49,6 +49,10 @@ export default defineConfig({
         __dirname,
         "packages/ports/pi/src/index.ts",
       ),
+      "@autopilot-harness/port-codebuddy": path.resolve(
+        __dirname,
+        "packages/ports/codebuddy/src/index.ts",
+      ),
     },
   },
 });

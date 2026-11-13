@@ -1,0 +1,55 @@
+{
+  "name": "@autopilot-harness/port-codebuddy",
+  "version": "0.18.5",
+  "description": "Autopilot harness host port for CodeBuddy Code CLI hooks (.codebuddy/settings.json; Stop continue:false+reason; independent --platform codebuddy fingerprint).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/AdamsShen/autopilot-harness.git",
+    "directory": "packages/ports/codebuddy"
+  },
+  "homepage": "https://github.com/AdamsShen/autopilot-harness#readme",
+  "bugs": {
+    "url": "https://github.com/AdamsShen/autopilot-harness/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@autopilot-harness/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "mt2007 (https://github.com/mt2007)",
+  "keywords": [
+    "autopilot",
+    "harness",
+    "agent",
+    "ai",
+    "codebuddy",
+    "codebuddy-code",
+    "tencent",
+    "checklist",
+    "code-review"
+  ]
+}

@@ -139,6 +139,21 @@ export {
   probeDevinCliVersion,
   isParseableDevinVersion,
   isDevinVersionBelowSoftMin,
+  mergeCodebuddySettings,
+  validateCodebuddySettingsShape,
+  hasCompleteCodebuddyAutopilotHooks,
+  summarizeCodebuddyAutopilotHooks,
+  stripAutopilotCodebuddySettings,
+  codebuddySettingsContainAutopilot,
+  codebuddyHooksHavePlatformStamp,
+  codebuddyAutopilotHasOmittedOrSmallTimeout,
+  autopilotCodebuddyHookCommandLine,
+  autopilotCodebuddyMatcherGroup,
+  CODEBUDDY_AUTOPILOT_EVENTS,
+  CODEBUDDY_POST_TOOL_USE_MATCHER,
+  CODEBUDDY_HOOK_TIMEOUT_SEC,
+  CODEBUDDY_SETTINGS_REL_PATH,
+  CODEBUDDY_SETTINGS_LOCAL_REL_PATH,
 } from "./init/install.js";
 export type { InitYesOptions, InitResult, HooksFile } from "./init/types.js";
 export type {
@@ -182,6 +197,11 @@ export type {
   DevinMatcherGroup,
   DevinHookHandler,
 } from "./init/devin-hooks-merge.js";
+export type {
+  CodebuddySettingsFile,
+  CodebuddyMatcherGroup,
+  CodebuddyHookHandler,
+} from "./init/codebuddy-settings-merge.js";
 export type { PreflightResult } from "./init/install.js";
 export { PACKAGE_VERSION } from "./init/types.js";
 export { formatStatus, runDoctor, readPinVersion, readStaleAfterHours, hasGlobalSelfReviewHooks } from "./status-doctor.js";

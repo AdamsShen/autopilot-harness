@@ -2066,10 +2066,16 @@ function stripUserQuery(prompt) {
   }
   return text;
 }
+var HOST_FOLLOWUP_WRAPPER_LINES = [
+  "Stop hook feedback:",
+  "Stop hook feedback\uFF1A"
+];
+var HOST_HOOK_COMMAND_PREFIX_RE = /^\[[^\]\r\n]{1,300}\]:[ \t]*(.+)$/s;
 function substantivePromptBody(text) {
   const body = stripUserQuery(text || "");
   const lines = body.split(/\r?\n/);
   let i = 0;
+  let afterHostWrapper = false;
   while (i < lines.length) {
     const trimmed = lines[i].trim();
     if (!trimmed) {
@@ -2079,6 +2085,17 @@ function substantivePromptBody(text) {
     if (trimmed.startsWith("<") && trimmed.includes(">")) {
       i++;
       continue;
+    }
+    if (HOST_FOLLOWUP_WRAPPER_LINES.includes(trimmed)) {
+      i++;
+      afterHostWrapper = true;
+      continue;
+    }
+    if (afterHostWrapper) {
+      const stripped = trimmed.match(HOST_HOOK_COMMAND_PREFIX_RE);
+      if (stripped?.[1]) {
+        lines[i] = stripped[1];
+      }
     }
     break;
   }
@@ -2548,6 +2565,9 @@ var DEFAULT_AUTOPILOT_IGNORE_TEXT = `# Autopilot \u2014 paths that do NOT trigge
 .pi/extensions/autopilot*
 .devin/hooks.v1.json
 .devin/skills/**
+.codebuddy/settings.json
+.codebuddy/settings.local.json
+.codebuddy/skills/**
 
 # Planning / track artifacts (legacy root + new default portal)
 plans/**
@@ -12476,6 +12496,377 @@ function handleDevinStopInner(engine, payload, opts) {
   return { decision: "block", reason };
 }
 
+// ../ports/codebuddy/src/index.ts
+var CODEBUDDY_PLATFORM = "codebuddy";
+var CODEBUDDY_POST_TOOL_USE_MATCHER = "^(Edit|Write|MultiEdit|NotebookEdit)$";
+var MAX_NEED_PICK_SLUGS11 = 40;
+var MAX_NEED_PICK_CONTEXT_CHARS11 = 2e3;
+var MAX_HOOK_TEXT_CHARS3 = 8192;
+var MAX_TOOL_INPUT_JSON_CHARS2 = 1048576;
+var PATH_KEYS2 = [
+  "file_path",
+  "filePath",
+  "path",
+  "notebook_path",
+  "notebookPath",
+  "target_file",
+  "targetFile"
+];
+function loopCountFromCodebuddyStopHookActive(payload) {
+  if (!payload || typeof payload !== "object") return 0;
+  return payload.stop_hook_active === true || payload.stopHookActive === true ? 1 : 0;
+}
+var CODEBUDDY_EDIT_TOOL_RE = new RegExp(CODEBUDDY_POST_TOOL_USE_MATCHER);
+function isCodebuddyEditTool(toolName) {
+  if (typeof toolName !== "string") return false;
+  return CODEBUDDY_EDIT_TOOL_RE.test(toolName.trim());
+}
+function normalizeCodebuddyStopStatus(payload, opts) {
+  const statusRaw = String(payload?.status ?? "").toLowerCase().trim();
+  if (statusRaw === "aborted" || statusRaw === "cancelled" || statusRaw === "canceled" || opts?.status === "aborted") {
+    return "aborted";
+  }
+  if (statusRaw === "error" || statusRaw === "failed" || opts?.status === "error") {
+    return "error";
+  }
+  return "completed";
+}
+function sessionIdOnly2(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  for (const raw of [payload.session_id, payload.sessionId]) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) continue;
+    return trimmed;
+  }
+  return "";
+}
+function clipText9(text, max = MAX_HOOK_TEXT_CHARS3) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}\u2026`;
+}
+function blockReason10(message, fallback) {
+  const text = typeof message === "string" ? message.trim() : "";
+  return clipText9(text || fallback);
+}
+function firstNonBlankString2(...values) {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return "";
+}
+function toolNameOf2(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  return firstNonBlankString2(payload.tool_name, payload.toolName);
+}
+function asToolInputObject2(value) {
+  if (!value) return null;
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value !== "string") return null;
+  if (value.length > MAX_TOOL_INPUT_JSON_CHARS2) return null;
+  const text = value.trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function pathText2(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed || /[\u0000-\u001f\u007f]/.test(trimmed)) return "";
+  return trimmed;
+}
+function objectHasPath2(input) {
+  return PATH_KEYS2.some((key) => pathText2(input[key]).length > 0);
+}
+function toolInputObject8(payload) {
+  const snake = asToolInputObject2(payload.tool_input);
+  const camel = asToolInputObject2(payload.toolInput);
+  if (snake && objectHasPath2(snake)) return snake;
+  if (camel && objectHasPath2(camel)) return camel;
+  return snake ?? camel;
+}
+function pathsFromToolInput2(input) {
+  const out = [];
+  for (const key of PATH_KEYS2) {
+    const filePath = pathText2(input[key]);
+    if (!filePath || out.includes(filePath)) continue;
+    out.push(filePath);
+  }
+  return out;
+}
+function editPaths2(payload) {
+  if (!payload || typeof payload !== "object") return [];
+  if (!isCodebuddyEditTool(toolNameOf2(payload))) return [];
+  const input = toolInputObject8(payload);
+  if (!input) return [];
+  return pathsFromToolInput2(input);
+}
+function allowNeedPick2(userMessage, candidates) {
+  const fromMessage = typeof userMessage === "string" && userMessage.trim().length > 0 ? userMessage.trim() : "";
+  const slugs = [
+    ...new Set(
+      (candidates ?? []).map((c) => c && typeof c.slug === "string" ? c.slug.trim() : "").filter((s) => s.length > 0 && isSafeTrackSlug(s))
+    )
+  ].slice(0, MAX_NEED_PICK_SLUGS11);
+  let ctx = fromMessage || (slugs.length > 0 ? `Select a plan to execute:
+
+${slugs.map((s, i) => `  ${i + 1}. ${s}`).join("\n")}
+
+Reply with a number or /autopilot-run <slug>.` : "Select a plan to execute. Reply with a number or /autopilot-run <slug>.");
+  if (ctx.length > MAX_NEED_PICK_CONTEXT_CHARS11) {
+    ctx = `${ctx.slice(0, MAX_NEED_PICK_CONTEXT_CHARS11 - 1)}\u2026`;
+  }
+  return {
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: ctx
+    }
+  };
+}
+function blockSubmit5(message, fallback) {
+  return { continue: false, reason: blockReason10(message, fallback) };
+}
+function stampCodebuddyPlatform(store, conversationId, projectRoot) {
+  const session = store.getSession(conversationId);
+  if (!session || session.platform === CODEBUDDY_PLATFORM) return;
+  store.upsertSession({
+    conversation_id: conversationId,
+    project_root: session.project_root || projectRoot,
+    code_root: session.code_root || projectRoot,
+    platform: CODEBUDDY_PLATFORM
+  });
+}
+function armCodeEdited11(store, conversationId, projectRoot) {
+  const cfg = loadProjectReviewConfig(projectRoot);
+  if (cfg.reviewScope === "project") {
+    ensureAmbientReviewSession(
+      store,
+      conversationId,
+      projectRoot,
+      cfg.reviewScope,
+      CODEBUDDY_PLATFORM
+    );
+  }
+  stampCodebuddyPlatform(store, conversationId, projectRoot);
+  const session = store.getSession(conversationId);
+  const checklistPath = session?.checklist_path?.trim() ?? "";
+  let checklistSnap = null;
+  if (checklistPath) {
+    try {
+      checklistSnap = parseChecklist(checklistPath, { projectRoot });
+    } catch {
+    }
+  }
+  store.markCodeEdited(conversationId, (chain) => {
+    const fromPending = parseAdvanceNextItemId(chain.pending_followup);
+    if (checklistSnap) {
+      if (fromPending && effectiveReviewingItemId(checklistSnap, fromPending)) {
+        return fromPending;
+      }
+      return firstUnchecked(checklistSnap)?.id ?? null;
+    }
+    return fromPending;
+  });
+}
+function handleCodebuddyUserPromptSubmit(store, payload, projectRoot, portConfig) {
+  try {
+    return handleCodebuddyUserPromptSubmitInner(
+      store,
+      payload,
+      projectRoot,
+      portConfig
+    );
+  } catch {
+    return {};
+  }
+}
+function handleCodebuddyUserPromptSubmitInner(store, payload, projectRoot, portConfig) {
+  const conversationId = sessionIdOnly2(payload);
+  if (!conversationId) return {};
+  const prompt = typeof payload.prompt === "string" ? payload.prompt : "";
+  if (isHarnessFollowupMessage(prompt)) {
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    return {};
+  }
+  try {
+    store.clearPendingFollowupIf(
+      conversationId,
+      isRecoverOrStuckFollowupMessage
+    );
+  } catch {
+  }
+  const session = store.getSession(conversationId);
+  const hookCfg = loadProjectHookConfig(projectRoot);
+  const trigger = parseTrigger({
+    prompt,
+    conversationId,
+    projectRoot,
+    pendingAction: session?.pending_action,
+    triggers: hookCfg.triggers
+  });
+  const actionConfig = {
+    ...portConfig?.phaseActions,
+    plansDir: portConfig?.phaseActions?.plansDir ?? hookCfg.plansDir
+  };
+  const gateFallback = "Autopilot rejected this prompt. Check `npx autopilot-harness status`.";
+  if (trigger?.kind === "off") {
+    applyOff(store, conversationId);
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    return {};
+  }
+  if (trigger?.kind === "on") {
+    const result = applyOn(store, conversationId, projectRoot, {
+      initialBrief: trigger.initialBrief,
+      slug: trigger.slug,
+      platform: CODEBUDDY_PLATFORM
+    });
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    if (!result.ok) return blockSubmit5(result.userMessage, gateFallback);
+    return {};
+  }
+  if (trigger?.kind === "resume") {
+    const result = applyResume(store, conversationId, { slug: trigger.slug });
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    if (!result.ok) return blockSubmit5(result.userMessage, gateFallback);
+    return {};
+  }
+  if (trigger?.kind === "resume_review") {
+    applyResumeReview(store, conversationId);
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    return {};
+  }
+  if (trigger?.kind === "run") {
+    const result = applyRun(store, conversationId, projectRoot, {
+      slug: trigger.slug,
+      config: actionConfig,
+      platform: CODEBUDDY_PLATFORM
+    });
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    if (!result.ok) {
+      if (isChannelANeedPick(result)) {
+        return allowNeedPick2(result.userMessage, result.candidates);
+      }
+      return blockSubmit5(result.userMessage, gateFallback);
+    }
+    return {};
+  }
+  if (trigger?.kind === "replan") {
+    const result = applyReplan(store, conversationId, projectRoot, {
+      slug: trigger.slug,
+      config: actionConfig,
+      platform: CODEBUDDY_PLATFORM
+    });
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    if (!result.ok) {
+      if (isChannelANeedPick(result)) {
+        return allowNeedPick2(result.userMessage, result.candidates);
+      }
+      return blockSubmit5(result.userMessage, gateFallback);
+    }
+    return {};
+  }
+  if (trigger?.kind === "track_pick" && trigger.trackPick) {
+    const result = applyTrackPick(
+      store,
+      conversationId,
+      projectRoot,
+      trigger.trackPick,
+      { config: actionConfig, platform: CODEBUDDY_PLATFORM }
+    );
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    if (!result.ok) {
+      if (isChannelANeedPick(result)) {
+        return allowNeedPick2(result.userMessage, result.candidates);
+      }
+      return blockSubmit5(result.userMessage, gateFallback);
+    }
+    return {};
+  }
+  store.clearChainPending(conversationId);
+  stampCodebuddyPlatform(store, conversationId, projectRoot);
+  return {};
+}
+function handleCodebuddyPostToolUse(store, payload, projectRoot) {
+  try {
+    handleCodebuddyPostToolUseInner(store, payload, projectRoot);
+  } catch {
+  }
+}
+function handleCodebuddyPostToolUseInner(store, payload, projectRoot) {
+  if (!payload || typeof payload !== "object") return;
+  const conversationId = sessionIdOnly2(payload);
+  const toolName = toolNameOf2(payload);
+  if (!conversationId || !isCodebuddyEditTool(toolName)) return;
+  const paths = editPaths2(payload);
+  if (paths.length === 0) {
+    stampCodebuddyPlatform(store, conversationId, projectRoot);
+    return;
+  }
+  let plansDir;
+  try {
+    plansDir = loadProjectHookConfig(projectRoot).plansDir;
+  } catch {
+    plansDir = void 0;
+  }
+  let armed = false;
+  for (const filePath of paths) {
+    try {
+      notePlansDirEdit(
+        store,
+        conversationId,
+        projectRoot,
+        filePath,
+        plansDir
+      );
+    } catch {
+    }
+    if (armed || !isProductCodeEdit(filePath, { projectRoot })) continue;
+    armCodeEdited11(store, conversationId, projectRoot);
+    armed = true;
+  }
+  if (!armed) stampCodebuddyPlatform(store, conversationId, projectRoot);
+}
+function handleCodebuddyStop(engine, payload, opts) {
+  try {
+    return handleCodebuddyStopInner(engine, payload, opts);
+  } catch {
+    return {};
+  }
+}
+function handleCodebuddyStopInner(engine, payload, opts) {
+  const conversationId = sessionIdOnly2(payload);
+  if (!conversationId) return {};
+  const transcriptTrimmed = firstNonBlankString2(
+    payload.transcript_path,
+    payload.transcriptPath
+  );
+  const transcriptPath = transcriptTrimmed && !/[\u0000-\u001f\u007f]/.test(transcriptTrimmed) ? transcriptTrimmed : void 0;
+  const action = engine.handleStop({
+    conversationId,
+    status: normalizeCodebuddyStopStatus(payload, opts),
+    loopCount: loopCountFromCodebuddyStopHookActive(payload),
+    transcriptPath,
+    platform: CODEBUDDY_PLATFORM
+  });
+  if (!action?.message) return {};
+  const reason = blockReason10(action.message, "Autopilot followup");
+  if (!action.loop) {
+    return { continue: true, systemMessage: reason };
+  }
+  return { continue: false, reason };
+}
+
 // src/vendor-entry.ts
 function createConfiguredReviewEngine2(store, projectRoot) {
   const cfg = loadProjectReviewConfig(projectRoot);
@@ -12484,6 +12875,7 @@ function createConfiguredReviewEngine2(store, projectRoot) {
 }
 export {
   ANTIGRAVITY_PLATFORM,
+  CODEBUDDY_PLATFORM,
   COPILOT_PLATFORM,
   DEVIN_PLATFORM,
   FACTORY_PLATFORM,
@@ -12506,6 +12898,9 @@ export {
   handleBeforeSubmitPrompt,
   handleStop2 as handleClaudeStop,
   handleSubagentStop2 as handleClaudeSubagentStop,
+  handleCodebuddyPostToolUse,
+  handleCodebuddyStop,
+  handleCodebuddyUserPromptSubmit,
   handlePostToolUse2 as handleCodexPostToolUse,
   handleStop3 as handleCodexStop,
   handleUserPromptSubmit2 as handleCodexUserPromptSubmit,

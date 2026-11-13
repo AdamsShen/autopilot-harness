@@ -32,6 +32,9 @@ importers:
       '@autopilot-harness/port-claude-code':
         specifier: workspace:*
         version: link:../ports/claude-code
+      '@autopilot-harness/port-codebuddy':
+        specifier: workspace:*
+        version: link:../ports/codebuddy
       '@autopilot-harness/port-codex':
         specifier: workspace:*
         version: link:../ports/codex
@@ -105,6 +108,16 @@ importers:
         version: 5.9.3
 
   packages/ports/claude-code:
+    dependencies:
+      '@autopilot-harness/core':
+        specifier: workspace:*
+        version: link:../../core
+    devDependencies:
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+
+  packages/ports/codebuddy:
     dependencies:
       '@autopilot-harness/core':
         specifier: workspace:*

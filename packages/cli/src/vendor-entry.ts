@@ -3,7 +3,7 @@
  * Consumers get core + port-cursor + port-claude-code + port-codex +
  * port-kimi-code + port-copilot-cli + port-grok-build + port-gemini-cli +
  * port-factory-droid + port-hermes-agent + port-antigravity + port-pi +
- * port-devin + i18n
+ * port-devin + port-codebuddy + i18n
  * without installing workspace packages.
  */
 import { loadLocale } from "@autopilot-harness/i18n";
@@ -119,6 +119,13 @@ export {
   handleDevinPostToolUse,
   handleDevinStop,
 } from "@autopilot-harness/port-devin";
+
+export {
+  CODEBUDDY_PLATFORM,
+  handleCodebuddyUserPromptSubmit,
+  handleCodebuddyPostToolUse,
+  handleCodebuddyStop,
+} from "@autopilot-harness/port-codebuddy";
 
 /** @deprecated Prefer handleCursorStop — kept for older hook.mjs copies. */
 export { handleStop } from "@autopilot-harness/port-cursor";
