@@ -9,8 +9,10 @@
  *
  * 设计约束（与 hermes-hooks-merge 同约定）：
  *   1. **只动自己那一条**：按 `id` 或已知包名指纹识别，其它 `insert` 条目、
- *      其它补丁操作、以及用户注释一律原样保留（走 yaml 的 Document API，
- *      不做 parse→JS→stringify 的往返，那样会丢注释）。
+ *      其它补丁操作、以及用户注释一律原样保留。实现上是**按行精确编辑**
+ *      （用 yaml 解析只做定位，写回只替换/删除自己条目占的行），
+ *      而不是「改节点 → 整树序列化」：后者会按 80 列折行长标量、并把顶层
+ *      注释缩进进列表项，在本机 200 行的真实补丁层上会产生整文件 diff。
  *   2. **幂等**：合并后再次合并必须字节一致（先 strip 再 append 同一形状）。
  *   3. **就地迁移**：旧包名（`dsh-autopilot-harness/plugin` /
  *      `dsh-autopilot/plugin`）写在新位置时只改 `name`，其余字段保持不动。
@@ -19,7 +21,14 @@
  */
 import os from "node:os";
 import path from "node:path";
-import { isMap, isSeq, parseDocument, type Document } from "yaml";
+import {
+  isMap,
+  isScalar,
+  isSeq,
+  parseDocument,
+  stringify,
+  type Document,
+} from "yaml";
 import {
   MAX_UNTRUSTED_TEXT_BYTES,
   readUntrustedUtf8File,
@@ -392,6 +401,11 @@ function seqFromDocument(doc: Document.Parsed): Document.Parsed {
   return doc;
 }
 
+/** 根序列节点本身（`seqFromDocument` 返回的是 Document，别直接取 `.items`）。 */
+function editableRootSeq(doc: Document.Parsed): { items: unknown[] } {
+  return seqFromDocument(doc).contents as unknown as { items: unknown[] };
+}
+
 /** 在序列节点里去掉本插件条目；只处理 `insert` 列表。 */
 function stripNodes(seq: { items: unknown[] }): void {
   const keptOps: unknown[] = [];
@@ -435,17 +449,247 @@ function stripNodes(seq: { items: unknown[] }): void {
   seq.items = keptOps as never;
 }
 
+/* ------------------------------------------------------------------ *
+ * 按行精确编辑的辅助
+ * ------------------------------------------------------------------ */
+
+/** 一段待应用的文本替换（偏移基于**原始**文本）。 */
+interface TextEdit {
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** 节点占用的整行范围 `[start, end)`。 */
+interface BlockSpan {
+  start: number;
+  end: number;
+}
+
+function normalizePatchText(existing: string | null): string {
+  return typeof existing === "string" ? existing.replace(/^\uFEFF/, "") : "";
+}
+
+/** 跟随原文件的换行风格，避免 CRLF 文件被掺进 LF 行。 */
+function detectEol(src: string): string {
+  return src.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function scalarText(node: unknown): string | null {
+  if (!isScalar(node)) return null;
+  const value = (node as { value?: unknown }).value;
+  return typeof value === "string" ? value : null;
+}
+
+function mapPairs(node: unknown): Array<{ key: unknown; value: unknown }> {
+  if (!isMap(node)) return [];
+  return node.items as Array<{ key: unknown; value: unknown }>;
+}
+
+/** 映射节点里某个键的值节点（没有该键返回 `undefined`）。 */
+function mapValueOf(node: unknown, key: string): unknown {
+  const pair = mapPairs(node).find((p) => scalarText(p.key) === key);
+  return pair ? pair.value : undefined;
+}
+
+/** 条目节点是否为本插件（id 命中，或 name 是当前/历史包名）。 */
+function entryNodeIsAutopilot(entry: unknown): boolean {
+  const id = scalarText(mapValueOf(entry, "id"));
+  if (id !== null && id.trim() === DSH_PATCH_ENTRY_ID) return true;
+  const name = scalarText(mapValueOf(entry, "name"));
+  if (name === null) return false;
+  const trimmed = name.trim();
+  if (trimmed === DSH_PATCH_ENTRY_NAME) return true;
+  return (DSH_LEGACY_ENTRY_NAMES as readonly string[]).includes(trimmed);
+}
+
+interface DshEntryLocation {
+  entryNode: unknown;
+  index: number;
+}
+
+/** 解析树里所有本插件条目（顺序 = 文件顺序）。 */
+function locateAutopilotEntryNodes(
+  doc: Document.Parsed,
+): DshEntryLocation[] {
+  const found: DshEntryLocation[] = [];
+  const root = doc.contents;
+  if (!isSeq(root)) return found;
+  for (const opNode of root.items as unknown[]) {
+    const insertSeq = mapValueOf(opNode, "insert");
+    if (!isSeq(insertSeq)) continue;
+    (insertSeq.items as unknown[]).forEach((entryNode, index) => {
+      if (entryNodeIsAutopilot(entryNode)) found.push({ entryNode, index });
+    });
+  }
+  return found;
+}
+
+function lineStartOffset(src: string, offset: number): number {
+  const idx = src.lastIndexOf("\n", offset - 1);
+  return idx < 0 ? 0 : idx + 1;
+}
+
 /**
- * 文本级合并（保留用户注释）：删掉旧的本插件条目，再在末尾追加一条。
+ * 节点占用的整行范围。
+ *
+ * 只有「安全可截取」时返回：
+ *   - 行首到节点之间只有缩进与块序列的 `- `；
+ *   - 行尾到节点之后只有空白或注释。
+ * 其余情形（flow 写法、与其它条目同行、行尾还有别的值）返回 `null`，
+ * 由调用方退回整树重写，宁可 diff 大一点也不切坏用户文件。
+ */
+function blockLineSpan(src: string, node: unknown): BlockSpan | null {
+  const range = (node as { range?: [number, number, number] })?.range;
+  if (!Array.isArray(range)) return null;
+  const [start, , nodeEnd] = range;
+  if (typeof start !== "number" || typeof nodeEnd !== "number") return null;
+  const lineStart = lineStartOffset(src, start);
+  const prefix = src.slice(lineStart, start);
+  if (!/^[ \t]*(?:-[ \t]+)?$/.test(prefix) || prefix.includes("\t")) {
+    return null;
+  }
+  const eolAt = src.indexOf("\n", nodeEnd);
+  const lineEnd = eolAt < 0 ? src.length : eolAt;
+  const suffix = src.slice(nodeEnd, lineEnd);
+  if (!/^[ \t\r]*(?:#.*)?$/.test(suffix)) return null;
+  return { start: lineStart, end: eolAt < 0 ? src.length : eolAt + 1 };
+}
+
+/** 该行行首的缩进空格数。 */
+function lineIndent(src: string, lineStart: number): number {
+  let i = lineStart;
+  while (i < src.length && src[i] === " ") i += 1;
+  return i - lineStart;
+}
+
+/** 应用一组互不重叠的文本替换（从后往前，避免偏移失效）。 */
+function applyTextEdits(src: string, edits: TextEdit[]): string {
+  const ordered = [...edits].sort((a, b) => b.start - a.start);
+  let out = src;
+  for (const edit of ordered) {
+    out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
+  }
+  return out;
+}
+
+/** 去掉 `insert` 已被清空的补丁操作（只剩它一个键时整段没有意义）。 */
+function dropEmptyInsertOps(src: string): string {
+  if (!src.trim()) return "";
+  const doc = parseDocumentForEdit(src);
+  const root = doc.contents;
+  if (!isSeq(root)) return src;
+  const edits: TextEdit[] = [];
+  for (const opNode of root.items as unknown[]) {
+    if (!isMap(opNode)) continue;
+    const pairs = mapPairs(opNode);
+    const only = pairs[0];
+    if (pairs.length !== 1 || !only || scalarText(only.key) !== "insert") {
+      continue;
+    }
+    const value = only.value;
+    const emptySeq = isSeq(value) && (value.items as unknown[]).length === 0;
+    // `- insert:` 后面什么都没写时是一个「值为 null 的标量节点」，不是 JS null。
+    const nullScalar = isScalar(value) && (value as { value?: unknown }).value == null;
+    if (!emptySeq && !nullScalar && value != null) continue;
+    const span = blockLineSpan(src, opNode);
+    if (span) edits.push({ ...span, text: "" });
+  }
+  return applyTextEdits(src, edits);
+}
+
+/**
+ * 本插件条目的规范行（含用户自定义的其它顶层键）。
+ *
+ * `indent` 是条目行首缩进（序列项 `- ` 所在的列）。已有的额外键（如用户手动
+ * 加的 `disabled: true`）用 yaml 序列化后追加在末尾，值不丢，只丢行内注释。
+ */
+function entryLines(indent: number, existing?: unknown): string[] {
+  const pad = (n: number) => " ".repeat(n);
+  const lines = [
+    `${pad(indent)}- id: ${DSH_PATCH_ENTRY_ID}`,
+    `${pad(indent + 2)}name: ${JSON.stringify(DSH_PATCH_ENTRY_NAME)}`,
+    `${pad(indent + 2)}config:`,
+    `${pad(indent + 4)}autoInit: ${String(DSH_PATCH_DEFAULT_CONFIG.autoInit)}`,
+    `${pad(indent + 4)}maxSteerPerTurn: ${String(DSH_PATCH_DEFAULT_CONFIG.maxSteerPerTurn)}`,
+  ];
+  let extras: Record<string, unknown> = {};
+  try {
+    extras = (isMap(existing) ? existing.toJSON() : {}) as Record<string, unknown>;
+  } catch {
+    extras = {};
+  }
+  const reserved = new Set(["id", "name", "config"]);
+  for (const [key, value] of Object.entries(extras ?? {})) {
+    if (reserved.has(key) || isUnsafeKey(key)) continue;
+    let block: string;
+    try {
+      block = stringify({ [key]: value }, { lineWidth: 0 }).replace(/\n$/, "");
+    } catch {
+      continue;
+    }
+    for (const line of block.split("\n")) {
+      lines.push(`${pad(indent + 2)}${line}`);
+    }
+  }
+  return lines;
+}
+
+/** 顶层追加用的 `- insert:` 块（不含结尾换行）。 */
+function entryInsertBlock(indent: number, eol: string): string {
+  const pad = " ".repeat(indent);
+  return [`${pad}- insert:`, ...entryLines(indent + 4)].join(eol);
+}
+
+function ensureTrailingNewline(text: string, eol: string = "\n"): string {
+  const body = text.replace(/[ \t\r\n]+$/, "");
+  return body ? `${body}${eol}` : "";
+}
+
+/**
+ * 文本级合并（保留用户注释）：删掉旧的本插件条目，再写回一条规范的。
+ * 已存在条目时**原地重写该条目占的行**，其它行一个字节都不动。
  */
 export function mergeDshPatchYaml(existing: string | null): string {
-  const src = typeof existing === "string" ? existing.replace(/^\uFEFF/, "") : "";
-  const doc = seqFromDocument(parseDocumentForEdit(src));
-  const seq = doc.contents as unknown as { items: unknown[] };
-  stripNodes(seq);
-  seq.items.push(doc.createNode({ insert: [autopilotDshPatchEntry()] }) as never);
-  const out = String(doc);
-  return out.endsWith("\n") ? out : `${out}\n`;
+  const src = normalizePatchText(existing);
+  const eol = detectEol(src);
+  if (!src.trim()) return `${entryInsertBlock(0, eol)}${eol}`;
+
+  const doc = parseDocumentForEdit(src);
+  if (!isSeq(doc.contents)) {
+    throw new Error(
+      "cordis.patch.yml root must be a list of patch operations.",
+    );
+  }
+  const hits = locateAutopilotEntryNodes(doc);
+  if (hits.length === 0) {
+    const body = src.replace(/[ \t\r\n]+$/, "");
+    return `${body}${eol}${entryInsertBlock(0, eol)}${eol}`;
+  }
+
+  const [primary, ...duplicates] = hits;
+  if (!primary) return mergeViaDocument(doc, eol);
+  const primarySpan = blockLineSpan(src, primary.entryNode);
+  const edits: TextEdit[] = [];
+  if (!primarySpan) return mergeViaDocument(doc, eol);
+  edits.push({
+    ...primarySpan,
+    text:
+      entryLines(lineIndent(src, primarySpan.start), primary.entryNode).join(
+        eol,
+      ) + eol,
+  });
+  for (const duplicate of duplicates) {
+    const span = blockLineSpan(src, duplicate.entryNode);
+    if (!span) return mergeViaDocument(doc, eol);
+    edits.push({ ...span, text: "" });
+  }
+
+  const merged = ensureTrailingNewline(
+    dropEmptyInsertOps(applyTextEdits(src, edits)),
+    eol,
+  );
+  return merged || `${entryInsertBlock(0, eol)}${eol}`;
 }
 
 /**
@@ -453,21 +697,59 @@ export function mergeDshPatchYaml(existing: string | null): string {
  * 剥离后若文件已无任何操作，返回空串（调用方可删除文件）。
  */
 export function stripAutopilotDshPatchYaml(existing: string): string {
-  const src = typeof existing === "string" ? existing.replace(/^\uFEFF/, "") : "";
+  const src = normalizePatchText(existing);
   if (!src.trim()) return "";
+  const eol = detectEol(src);
   const doc = parseDocumentForEdit(src);
   const contents = doc.contents;
   if (contents == null) return "";
   if (!isSeq(contents)) {
     throw new Error("cordis.patch.yml root must be a list of patch operations.");
   }
-  const seq = contents as unknown as { items: unknown[] };
+  const hits = locateAutopilotEntryNodes(doc);
+  if (hits.length === 0) {
+    return (contents.items as unknown[]).length === 0
+      ? ""
+      : ensureTrailingNewline(src, eol);
+  }
+  const edits: TextEdit[] = [];
+  for (const hit of hits) {
+    const span = blockLineSpan(src, hit.entryNode);
+    if (!span) return stripViaDocument(doc, eol);
+    edits.push({ ...span, text: "" });
+  }
+  const stripped = dropEmptyInsertOps(applyTextEdits(src, edits));
+  if (!stripped.trim()) return "";
+  // 只剩注释 / 空操作时不要凭空留下一个空文件。
+  try {
+    const check = parseDocument(stripped);
+    if (check.errors.length === 0) {
+      const root = check.contents;
+      if (root == null) return "";
+      if (isSeq(root) && (root.items as unknown[]).length === 0) return "";
+    }
+  } catch {
+    /* 保守：解析失败就保留文本，让上层报错 */
+  }
+  return ensureTrailingNewline(stripped, eol);
+}
+
+/** 兜底：无法按行截取时整树重写（禁用折行，尽量少改格式）。 */
+function mergeViaDocument(doc: Document.Parsed, eol: string): string {
+  const seq = editableRootSeq(doc);
+  stripNodes(seq);
+  seq.items.push(doc.createNode({ insert: [autopilotDshPatchEntry()] }) as never);
+  // yaml 序列化只产出 LF；CRLF 文件在兜底路径上退化为 LF（可接受，
+  // 因为兜底本身就意味着格式无法保证）。
+  return ensureTrailingNewline(doc.toString({ lineWidth: 0 }), eol);
+}
+
+/** 兜底：无法按行截取时整树重写剥离结果。 */
+function stripViaDocument(doc: Document.Parsed, eol: string): string {
+  const seq = editableRootSeq(doc);
   stripNodes(seq);
   if (seq.items.length === 0) return "";
-  const out = String(doc);
-  const body = out.endsWith("\n") ? out : `${out}\n`;
-  // 只剩注释（用户没写任何操作）时不要凭空留下一个空文件。
-  return body.replace(/^#.*$/gm, "").trim() === "" ? "" : body;
+  return ensureTrailingNewline(doc.toString({ lineWidth: 0 }), eol);
 }
 
 /** 解析为可编辑的 Document；语法错误抛错。 */

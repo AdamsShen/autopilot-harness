@@ -30,6 +30,24 @@ const USER_PATCH = `# 我自己的补丁层
         flag: true        # 用户自己的配置
 `;
 
+// 超 80 列的长标量 + 顶层注释：整树序列化会折行并把注释缩进，这里当回归基线。
+const LONG_SCALAR_LINE = `          - 'npx -y @modelcontextprotocol/server-postgres "$SOUL_HAVEN_PROD_DB_MCP_URL"'`;
+const USER_PATCH_LONG = `# 机器级补丁层（用户手写）
+- insert:
+    - id: mcp-postgres-prod
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        command: zsh
+        args:
+          - -lc
+${LONG_SCALAR_LINE}
+
+# ===== 关闭列表 =====
+    - id: mcp-xinyu
+      name: '@deepseek-ai/dsh-mcp-client'
+      disabled: true
+`;
+
 describe("DSH home / patch path resolution", () => {
   it("honors DSH_HOME and defaults to ~/.dsh", () => {
     expect(resolveDshHome({ DSH_HOME: "/tmp/dsh-home" })).toBe("/tmp/dsh-home");
@@ -167,6 +185,40 @@ describe("DSH patch merge (YAML text level)", () => {
     expect(summary.problems).toEqual([]);
     expect(out).not.toContain("dsh-autopilot-harness/plugin");
     expect(out).toContain(DSH_PATCH_ENTRY_NAME);
+  });
+
+  it("only appends its own block and leaves every other byte alone", () => {
+    // 真实场景：机器级补丁层里有长标量（超 80 列）和顶层注释。
+    // 整树序列化会把它们折行/缩进，产生整文件 diff —— 这里断言零漂移。
+    const out = mergeDshPatchYaml(USER_PATCH_LONG);
+    expect(out.startsWith(USER_PATCH_LONG)).toBe(true);
+    expect(out.slice(USER_PATCH_LONG.length)).toBe(
+      `- insert:\n    - id: ${DSH_PATCH_ENTRY_ID}\n      name: "${DSH_PATCH_ENTRY_NAME}"\n      config:\n        autoInit: false\n        maxSteerPerTurn: 32\n`,
+    );
+    expect(out).toContain(LONG_SCALAR_LINE);
+    expect(out).toContain("\n# ===== 关闭列表 =====\n");
+    expect(mergeDshPatchYaml(out)).toBe(out);
+  });
+
+  it("keeps the user's extra fields on our own entry while migrating", () => {
+    const legacy = `- insert:\n    - id: ${DSH_PATCH_ENTRY_ID}\n      name: 'dsh-autopilot-harness/plugin'\n      disabled: true\n      config:\n        autoInit: true\n        maxSteerPerTurn: 8\n`;
+    const out = mergeDshPatchYaml(legacy);
+    expect(out).toContain("disabled: true");
+    expect(out).not.toContain("dsh-autopilot-harness/plugin");
+    const summary = summarizeDshAutopilotEntry(parseDshPatchYaml(out));
+    expect(summary.entries).toBe(1);
+    expect(summary.problems).toEqual([]);
+  });
+
+  it("keeps CRLF line endings on insert and strip", () => {
+    const crlf = "- insert:\r\n    - id: user\r\n      name: user/plugin\r\n";
+    const out = mergeDshPatchYaml(crlf);
+    expect(out).toContain("\r\n- insert:\r\n");
+    expect(/(?<!\r)\n/.test(out)).toBe(false);
+    expect(mergeDshPatchYaml(out)).toBe(out);
+
+    const stripped = stripAutopilotDshPatchYaml(out);
+    expect(stripped).toBe(crlf);
   });
 
   it("refuses to merge into a non-list root", () => {
