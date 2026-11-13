@@ -111,6 +111,23 @@ function stripUserQuery(prompt: string): string {
 }
 
 /**
+ * Host-added lead-in lines that wrap a Stop-hook follow-up. CodeBuddy prepends
+ * `Stop hook feedback:` before the reason it writes into the transcript; without
+ * skipping it, harness-followup detection never matches and the same tip is
+ * redelivered every stop.
+ */
+const HOST_FOLLOWUP_WRAPPER_LINES = [
+  "Stop hook feedback:",
+  "Stop hook feedback：",
+];
+/**
+ * CodeBuddy prefixes a blocking Stop hook's stderr with `[<command>]: `.
+ * Strip only directly after a host wrapper line so ordinary user prompts that
+ * start with `[label]:` are untouched.
+ */
+const HOST_HOOK_COMMAND_PREFIX_RE = /^\[[^\]\r\n]{1,300}\]:[ \t]*(.+)$/s;
+
+/**
  * Prompt body after stripping `<user_query>` and leading markup lines
  * (`<timestamp>…</timestamp>`, etc.). Keeps the remainder of a multiline tip.
  */
@@ -118,6 +135,7 @@ export function substantivePromptBody(text: string): string {
   const body = stripUserQuery(text || "");
   const lines = body.split(/\r?\n/);
   let i = 0;
+  let afterHostWrapper = false;
   while (i < lines.length) {
     const trimmed = lines[i]!.trim();
     if (!trimmed) {
@@ -128,6 +146,17 @@ export function substantivePromptBody(text: string): string {
     if (trimmed.startsWith("<") && trimmed.includes(">")) {
       i++;
       continue;
+    }
+    if (HOST_FOLLOWUP_WRAPPER_LINES.includes(trimmed)) {
+      i++;
+      afterHostWrapper = true;
+      continue;
+    }
+    if (afterHostWrapper) {
+      const stripped = trimmed.match(HOST_HOOK_COMMAND_PREFIX_RE);
+      if (stripped?.[1]) {
+        lines[i] = stripped[1];
+      }
     }
     break;
   }

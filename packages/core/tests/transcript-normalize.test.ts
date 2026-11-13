@@ -121,6 +121,45 @@ describe("host transcript normalize", () => {
     expect(followupInFlight(events)).toBe(false);
   });
 
+  it("matches CodeBuddy `Stop hook feedback:` + `[cmd]:` wrapper (message + top-level role)", () => {
+    const fix =
+      "Review fix round 1 (no hard cap; confirm needs 1 consecutive no-edit rounds). Code changed this turn.";
+    const wrapped = `Stop hook feedback:\n[node .autopilot/bin/autopilot-harness-hook.mjs --platform codebuddy --event Stop]: ${fix}`;
+    writeJsonl(transcript, [
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "text", text: wrapped }],
+      },
+    ]);
+    let events = readTranscriptTail(transcript);
+    // Wrapper lines must not hide the harness tip from in-flight detection.
+    expect(followupInFlight(events)).toBe(true);
+    expect(automationFollowupPresent(events, fix)).toBe(true);
+
+    writeJsonl(transcript, [
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "text", text: wrapped }],
+      },
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "text", text: "self-review clean" }],
+      },
+    ]);
+    events = readTranscriptTail(transcript);
+    expect(automationFollowupPresent(events, fix)).toBe(true);
+    expect(followupInFlight(events)).toBe(false);
+  });
+
+  it("does not strip a normal user prompt that starts with [label]:", () => {
+    expect(substantivePromptBody("[note]: keep this label")).toBe(
+      "[note]: keep this label",
+    );
+  });
+
   it("does not treat Codex function_call payload.role as an assistant tip", () => {
     writeJsonl(transcript, [
       codexUserHook(FIX_ZH),

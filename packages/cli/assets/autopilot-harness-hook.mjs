@@ -19,13 +19,15 @@
  *   Antigravity: PreInvocation | PostToolUse | Stop (injectSteps; decision:continue+reason)
  *   Devin CLI: UserPromptSubmit | PostToolUse | Stop (decision:block+reason; exit 0;
  *     empty stdout is allow — never exit 2)
+ *   CodeBuddy Code: UserPromptSubmit | PostToolUse | Stop (Claude-shaped stdin;
+ *     continue = {continue:false, reason}; never decision:block)
  *
- * Dispatch is explicit eleven-way via --platform
+ * Dispatch is explicit twelve-way via --platform
  * (cursor | claude-code | codex | kimi-code | copilot-cli | grok-build | gemini-cli |
- * factory-droid | hermes-agent | antigravity | devin). Pi and Runner stay off this
+ * factory-droid | hermes-agent | antigravity | devin | codebuddy). Pi and Runner stay off this
  * list. Shared PascalCase event names must NOT imply Claude when platform is
  * codex, kimi-code, copilot-cli, grok-build, gemini-cli, factory-droid,
- * hermes-agent, antigravity, or devin. Copilot camelCase, Gemini
+ * hermes-agent, antigravity, devin, or codebuddy. Copilot camelCase, Gemini
  * BeforeAgent/AfterTool/AfterAgent, Hermes snake_case, and Antigravity PreInvocation
  * are routed by stamp + event only.
  */
@@ -64,6 +66,8 @@ const GROK_EVENTS = new Set(["UserPromptSubmit", "PostToolUse", "Stop"]);
 const FACTORY_EVENTS = new Set(["UserPromptSubmit", "PostToolUse", "Stop"]);
 /** Devin CLI shares Pascal names; routed by --platform devin only. */
 const DEVIN_EVENTS = new Set(["UserPromptSubmit", "PostToolUse", "Stop"]);
+/** CodeBuddy Code shares Pascal names; routed by --platform codebuddy only. */
+const CODEBUDDY_EVENTS = new Set(["UserPromptSubmit", "PostToolUse", "Stop"]);
 /** Hermes Agent shell events (snake_case; unique — never share Pascal Stop). */
 const HERMES_EVENTS = new Set(["pre_llm_call", "post_tool_call", "pre_verify"]);
 /**
@@ -96,6 +100,7 @@ const KNOWN_PLATFORMS = new Set([
   "hermes-agent",
   "antigravity",
   "devin",
+  "codebuddy",
 ]);
 /** Extension / meta hosts — must not ride the shell hook stamp path (R7). */
 const NON_SHELL_PLATFORMS = new Set(["pi", "runner"]);
@@ -113,6 +118,7 @@ function parseArgs(argv) {
     ...ANTIGRAVITY_EVENTS,
     ...GEMINI_EVENTS,
     ...COPILOT_EVENTS,
+    ...CODEBUDDY_EVENTS,
   ]);
   const out = { event: "beforeSubmitPrompt", platform: null, rawPlatform: null };
   for (let i = 0; i < argv.length; i++) {
@@ -158,7 +164,8 @@ function resolveHostId(declaredPlatform, event) {
     declaredPlatform === "factory-droid" ||
     declaredPlatform === "hermes-agent" ||
     declaredPlatform === "antigravity" ||
-    declaredPlatform === "devin"
+    declaredPlatform === "devin" ||
+    declaredPlatform === "codebuddy"
   ) {
     return declaredPlatform;
   }
@@ -293,6 +300,9 @@ async function loadHostPortPackage(hostId) {
   }
   if (hostId === "devin") {
     return loadPortPackage("@autopilot-harness/port-devin");
+  }
+  if (hostId === "codebuddy") {
+    return loadPortPackage("@autopilot-harness/port-codebuddy");
   }
   return loadPortPackage("@autopilot-harness/port-cursor");
 }
@@ -659,6 +669,101 @@ function writeDevinReply(result, opts = {}) {
     }
   }
   writeReply("");
+}
+
+/**
+ * CodeBuddy Code I/O（Claude 形 stdin）：
+ * - allow / no-op → `{}`
+ * - UPS 拦截 → `{continue:false, reason}`（禁止 decision:block）
+ * - Stop 续跑 → blocking（exit 2 + stderr）；CLI 2.181 丢弃 Stop continue:false
+ * - UPS needPick 注入 → `hookSpecificOutput.additionalContext`
+ * - Stop 只投递不续跑 → `{continue:true, systemMessage}`
+ */
+function writeCodebuddyReply(result, opts = {}) {
+  const allowInject = opts.allowInject === true;
+  if (isFactoryEmptyStdoutResult(result)) {
+    writeReply("{}");
+    return;
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    writeReply("{}");
+    return;
+  }
+  if (result.continue === false) {
+    const reason = clipFactoryStdio(
+      typeof result.reason === "string" ? result.reason.trim() : "",
+    );
+    if (reason.length > 0) {
+      writeReply(JSON.stringify({ continue: false, reason }));
+      return;
+    }
+    writeReply("{}");
+    return;
+  }
+  if (allowInject) {
+    const hso = result.hookSpecificOutput;
+    if (hso && typeof hso === "object" && !Array.isArray(hso)) {
+      const ctx = clipFactoryStdio(
+        typeof hso.additionalContext === "string"
+          ? hso.additionalContext.trim()
+          : "",
+      );
+      if (ctx.length > 0) {
+        writeReply(
+          JSON.stringify({
+            hookSpecificOutput: {
+              hookEventName: "UserPromptSubmit",
+              additionalContext: ctx,
+            },
+          }),
+        );
+        return;
+      }
+    }
+  }
+  writeReply("{}");
+}
+
+/**
+ * Stop 专用续跑通道：CodeBuddy 2.181 把 Stop 的 `continue:false` 解析为
+ * `{allowed:false}` 但没有 `blocking`，宿主编排层只会记录
+ * "Stop hook failed non-blockingly; not continuing"，不会重新唤起模型。
+ * 宿主唯一承认的 Stop 续跑形态是 blocking（exit 2 + stderr）；stderr 即
+ * followup 正文。只投递（loop:false）仍走 `{continue:true, systemMessage}`。
+ */
+function writeCodebuddyStopReply(result) {
+  if (isFactoryEmptyStdoutResult(result)) {
+    writeReply("{}");
+    return;
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    writeReply("{}");
+    return;
+  }
+  if (result.continue === false) {
+    const reason = clipFactoryStdio(
+      typeof result.reason === "string" ? result.reason.trim() : "",
+    );
+    if (reason.length > 0) {
+      process.stderr.write(`${reason}\n`);
+      process.exitCode = 2;
+      return;
+    }
+    writeReply("{}");
+    return;
+  }
+  if (result.continue === true) {
+    const sys = clipFactoryStdio(
+      typeof result.systemMessage === "string"
+        ? result.systemMessage.trim()
+        : "",
+    );
+    if (sys.length > 0) {
+      writeReply(JSON.stringify({ continue: true, systemMessage: sys }));
+      return;
+    }
+  }
+  writeReply("{}");
 }
 
 /**
@@ -1079,6 +1184,43 @@ function devinStopHandler(port) {
   return undefined;
 }
 
+/**
+ * CodeBuddy Stop: prefer aliased vendor export. Package-only uses handleStop
+ * only when CODEBUDDY_PLATFORM is stamped and no other host stop alias exists.
+ */
+function codebuddyStopHandler(port) {
+  if (typeof port.handleCodebuddyStop === "function") {
+    return port.handleCodebuddyStop;
+  }
+  if (
+    port.CODEBUDDY_PLATFORM === "codebuddy" &&
+    typeof port.handleStop === "function" &&
+    typeof port.handleBeforeSubmitPrompt !== "function" &&
+    typeof port.handleStopFailure !== "function" &&
+    typeof port.handleClaudeStop !== "function" &&
+    typeof port.handleCodexStop !== "function" &&
+    typeof port.handleKimiStop !== "function" &&
+    typeof port.handleCopilotStop !== "function" &&
+    typeof port.handleGrokStop !== "function" &&
+    typeof port.handleGeminiStop !== "function" &&
+    typeof port.handleFactoryStop !== "function" &&
+    typeof port.handleHermesPreVerify !== "function" &&
+    port.KIMI_PLATFORM !== "kimi-code" &&
+    port.COPILOT_PLATFORM !== "copilot-cli" &&
+    port.GROK_PLATFORM !== "grok-build" &&
+    port.GEMINI_PLATFORM !== "gemini-cli" &&
+    port.FACTORY_PLATFORM !== "factory-droid" &&
+    port.HERMES_PLATFORM !== "hermes-agent" &&
+    typeof port.handleAntigravityStop !== "function" &&
+    port.ANTIGRAVITY_PLATFORM !== "antigravity" &&
+    typeof port.handleDevinStop !== "function" &&
+    port.DEVIN_PLATFORM !== "devin"
+  ) {
+    return port.handleStop;
+  }
+  return undefined;
+}
+
 function hostPortReady(hostId, port) {
   if (!port || typeof port !== "object") return false;
   if (hostId === "cursor") {
@@ -1204,6 +1346,32 @@ function hostPortReady(hostId, port) {
       port.HERMES_PLATFORM !== "hermes-agent" &&
       typeof port.handleAntigravityStop !== "function" &&
       port.ANTIGRAVITY_PLATFORM !== "antigravity"
+    );
+  }
+  if (hostId === "codebuddy") {
+    if (typeof port.handleCodebuddyUserPromptSubmit === "function") return true;
+    return (
+      port.CODEBUDDY_PLATFORM === "codebuddy" &&
+      typeof port.handleUserPromptSubmit === "function" &&
+      typeof port.handleClaudeStop !== "function" &&
+      typeof port.handleStopFailure !== "function" &&
+      typeof port.handleCodexStop !== "function" &&
+      typeof port.handleKimiStop !== "function" &&
+      typeof port.handleCopilotStop !== "function" &&
+      typeof port.handleGrokStop !== "function" &&
+      typeof port.handleGeminiStop !== "function" &&
+      typeof port.handleFactoryStop !== "function" &&
+      typeof port.handleHermesPreVerify !== "function" &&
+      port.KIMI_PLATFORM !== "kimi-code" &&
+      port.COPILOT_PLATFORM !== "copilot-cli" &&
+      port.GROK_PLATFORM !== "grok-build" &&
+      port.GEMINI_PLATFORM !== "gemini-cli" &&
+      port.FACTORY_PLATFORM !== "factory-droid" &&
+      port.HERMES_PLATFORM !== "hermes-agent" &&
+      typeof port.handleAntigravityStop !== "function" &&
+      port.ANTIGRAVITY_PLATFORM !== "antigravity" &&
+      typeof port.handleDevinStop !== "function" &&
+      port.DEVIN_PLATFORM !== "devin"
     );
   }
   if (hostId === "codex") {
@@ -1401,6 +1569,37 @@ function resolveUserPromptSubmit(hostId, port) {
       port.HERMES_PLATFORM !== "hermes-agent" &&
       typeof port.handleAntigravityStop !== "function" &&
       port.ANTIGRAVITY_PLATFORM !== "antigravity"
+    ) {
+      return port.handleUserPromptSubmit;
+    }
+    return undefined;
+  }
+  if (hostId === "codebuddy") {
+    if (typeof port.handleCodebuddyUserPromptSubmit === "function") {
+      return port.handleCodebuddyUserPromptSubmit;
+    }
+    if (
+      port.CODEBUDDY_PLATFORM === "codebuddy" &&
+      typeof port.handleUserPromptSubmit === "function" &&
+      typeof port.handleClaudeStop !== "function" &&
+      typeof port.handleStopFailure !== "function" &&
+      typeof port.handleCodexStop !== "function" &&
+      typeof port.handleKimiStop !== "function" &&
+      typeof port.handleCopilotStop !== "function" &&
+      typeof port.handleGrokStop !== "function" &&
+      typeof port.handleGeminiStop !== "function" &&
+      typeof port.handleFactoryStop !== "function" &&
+      typeof port.handleHermesPreVerify !== "function" &&
+      port.KIMI_PLATFORM !== "kimi-code" &&
+      port.COPILOT_PLATFORM !== "copilot-cli" &&
+      port.GROK_PLATFORM !== "grok-build" &&
+      port.GEMINI_PLATFORM !== "gemini-cli" &&
+      port.FACTORY_PLATFORM !== "factory-droid" &&
+      port.HERMES_PLATFORM !== "hermes-agent" &&
+      typeof port.handleAntigravityStop !== "function" &&
+      port.ANTIGRAVITY_PLATFORM !== "antigravity" &&
+      typeof port.handleDevinStop !== "function" &&
+      port.DEVIN_PLATFORM !== "devin"
     ) {
       return port.handleUserPromptSubmit;
     }
@@ -1614,6 +1813,37 @@ function resolvePostToolUse(hostId, port) {
     }
     return undefined;
   }
+  if (hostId === "codebuddy") {
+    if (typeof port.handleCodebuddyPostToolUse === "function") {
+      return port.handleCodebuddyPostToolUse;
+    }
+    if (
+      port.CODEBUDDY_PLATFORM === "codebuddy" &&
+      typeof port.handlePostToolUse === "function" &&
+      typeof port.handleClaudeStop !== "function" &&
+      typeof port.handleStopFailure !== "function" &&
+      typeof port.handleCodexStop !== "function" &&
+      typeof port.handleKimiStop !== "function" &&
+      typeof port.handleCopilotStop !== "function" &&
+      typeof port.handleGrokStop !== "function" &&
+      typeof port.handleGeminiStop !== "function" &&
+      typeof port.handleFactoryStop !== "function" &&
+      typeof port.handleHermesPreVerify !== "function" &&
+      port.KIMI_PLATFORM !== "kimi-code" &&
+      port.COPILOT_PLATFORM !== "copilot-cli" &&
+      port.GROK_PLATFORM !== "grok-build" &&
+      port.GEMINI_PLATFORM !== "gemini-cli" &&
+      port.FACTORY_PLATFORM !== "factory-droid" &&
+      port.HERMES_PLATFORM !== "hermes-agent" &&
+      typeof port.handleAntigravityStop !== "function" &&
+      port.ANTIGRAVITY_PLATFORM !== "antigravity" &&
+      typeof port.handleDevinStop !== "function" &&
+      port.DEVIN_PLATFORM !== "devin"
+    ) {
+      return port.handlePostToolUse;
+    }
+    return undefined;
+  }
   if (hostId === "claude-code") {
     return port.handlePostToolUse;
   }
@@ -1725,6 +1955,7 @@ function resolveStopHostId(declaredPlatform, payload, event) {
   if (declaredPlatform === "hermes-agent") return "hermes-agent";
   if (declaredPlatform === "antigravity") return "antigravity";
   if (declaredPlatform === "devin") return "devin";
+  if (declaredPlatform === "codebuddy") return "codebuddy";
   if (declaredPlatform === "claude-code") return "claude-code";
   const hookName = String(
     payload?.hook_event_name ?? payload?.hookEventName ?? "",
@@ -1853,6 +2084,13 @@ async function main() {
     // Empty stdout + exit 0 is allow; never fall through to Claude heuristics.
     if (hostId === "devin" && !DEVIN_EVENTS.has(event)) {
       writeReply("");
+      return;
+    }
+
+    // CodeBuddy stamp on a non-CodeBuddy event aborts before vendor / state.db.
+    // JSON {} is a no-op allow for every CodeBuddy event shape.
+    if (hostId === "codebuddy" && !CODEBUDDY_EVENTS.has(event)) {
+      writeReply("{}");
       return;
     }
 
@@ -2079,6 +2317,10 @@ async function main() {
           writeDevinReply(result, { allowInject: true });
           return;
         }
+        if (hostId === "codebuddy") {
+          writeCodebuddyReply(result, { allowInject: true });
+          return;
+        }
         writeReply(JSON.stringify(result ?? {}));
         return;
       }
@@ -2300,6 +2542,14 @@ async function main() {
             );
             if (devinPort) stopFn = devinStopHandler(devinPort);
           }
+        } else if (stopHost === "codebuddy") {
+          stopFn = codebuddyStopHandler(port);
+          if (typeof stopFn !== "function") {
+            const codebuddyPort = await loadPortPackage(
+              "@autopilot-harness/port-codebuddy",
+            );
+            if (codebuddyPort) stopFn = codebuddyStopHandler(codebuddyPort);
+          }
         } else {
           stopFn = claudeStopHandler(port);
           if (typeof stopFn !== "function") {
@@ -2405,6 +2655,15 @@ async function main() {
           writeDevinReply(result, { allowInject: false });
           return;
         }
+        // CodeBuddy Stop: continue:false+reason / deliver-once systemMessage.
+        if (stopHost === "codebuddy" || declaredPlatform === "codebuddy") {
+          if (stopHost === "cursor") {
+            writeReply("{}");
+            return;
+          }
+          writeCodebuddyStopReply(result);
+          return;
+        }
         writeReply(JSON.stringify(result ?? {}));
         return;
       }
@@ -2419,7 +2678,8 @@ async function main() {
           hostId === "factory-droid" ||
           hostId === "hermes-agent" ||
           hostId === "antigravity" ||
-          hostId === "devin"
+          hostId === "devin" ||
+          hostId === "codebuddy"
         ) {
           failOpen(event, hostId);
           return;
