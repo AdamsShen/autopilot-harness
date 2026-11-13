@@ -1,0 +1,68 @@
+{
+  "name": "@autopilot-harness/port-dsh",
+  "version": "0.18.5",
+  "description": "Autopilot harness host port for DeepSeek Harness (DSH) — in-process cordis plugin (no hooks.json): agent/pre-step + tools/post-execute + agent/turn-stopping, steer-based followup via agent.steer().",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/AdamsShen/autopilot-harness.git",
+    "directory": "packages/ports/dsh"
+  },
+  "homepage": "https://github.com/AdamsShen/autopilot-harness#readme",
+  "bugs": {
+    "url": "https://github.com/AdamsShen/autopilot-harness/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@autopilot-harness/core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "mt2007 (https://github.com/mt2007)",
+  "keywords": [
+    "autopilot",
+    "harness",
+    "agent",
+    "ai",
+    "vibecoding",
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "checklist",
+    "code-review"
+  ]
+}

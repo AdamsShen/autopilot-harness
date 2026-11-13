@@ -30,6 +30,7 @@ const PACKAGES_WITH_WORKSPACE_DEPS = [
   "packages/ports/pi",
   "packages/ports/devin",
   "packages/ports/codebuddy",
+  "packages/ports/dsh",
   "packages/ports/runner",
 ] as const;
 
