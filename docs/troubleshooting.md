@@ -211,9 +211,22 @@ Antigravity Stop continue uses **`{ decision:"continue", reason }`** (**not** Cl
 - Doctor **FAIL**s missing/incomplete fingerprint; WARNs timeout omit/&lt;120, no documented Stop raise/hard-cap, `/hooks`+reload, missing `$DEVIN_PROJECT_DIR`, Devin+Claude dual fingerprints, skills dual-open, **`-p` unproven** (interactive CLI is the formal surface), Desktop tip (not FAIL); WARNs leftover `.devin/hooks.v1.json` fingerprint when `devin` is not in `platforms`.
 - Live: interactive CLI continue **≥1×** proved + edit arm yes (`plans/v0.15-devin/live-smoke-evidence.md`); aim ≥2× optional; **not** Desktop.
 
+### CodeBuddy Code
+
+**CodeBuddy Code** is **Shipped** — project hooks in **`.codebuddy/settings.json`** + skills in **`.codebuddy/skills`**.
+
+- Hooks: nested matcher groups; timeout **120** (host default 60); **UserPromptSubmit** + **PostToolUse** `^(Edit|Write|MultiEdit|NotebookEdit)$` + **Stop**; fingerprint `--platform codebuddy`.
+- stdin is Claude-shaped (`session_id` / `transcript_path` / `tool_name` / `stop_hook_active`)。**UPS 拦截**用 `{continue:false, reason}`；**Stop 续跑必须走 blocking（exit 2 + stderr）**：CLI 2.181 把 Stop 的 `continue:false` 解析成 `{allowed:false}` 但没有 `blocking`，只会打印 `Stop hook failed non-blockingly; not continuing`，不会重新唤起模型。`decision:"block"` 已废弃，Autopilot 不写。`loop:false` 只投递用 `{continue:true, systemMessage}`。
+- **Settings are snapshotted at startup** — after install/upgrade, review hooks in **`/hooks`**, then start a **new session**; editing `settings.json` mid-session does not hot-reload.
+- `settings.local.json` has **higher priority** than the project file — doctor WARNs when it still lists Autopilot (double-fire risk). Autopilot never writes it.
+- **桌面端（IDE）**与 CLI 行为不同：IDE 4.12 只要 `!allowed && message` 就注入 `stopHookFeedback`（exit 2 / `continue:false` 都满足），但它用 Stop hook 上的 **`loop_limit`** 控制每轮最多续跑次数，**默认 1**；`-1` = 不限。`init` 会写 `"loop_limit": -1`，否则桌面端一轮就停（链中途被截断 → `/autopilot-resume`）。CLI 忽略该字段。
+- IDE 4.12 会读取项目级 `<workspace>/.codebuddy/settings.json`（`loadProjectConfig` + `mergeConfigs`），并与 `~/.codebuddy/settings.json` / 项目 `settings.local.json` 合并；因此同一份 init 产物 CLI 与桌面端通用。
+- PostToolUse matcher is **anchored** (case-sensitive); lowercase `edit` / `edit_file` does not arm.
+- Doctor **FAIL**s a missing/incomplete fingerprint or missing `.codebuddy/skills/autopilot-*`; WARNs timeout omit/&lt;120, missing `--platform codebuddy`, `settings.local.json` residue, and leftover `.codebuddy/settings.json` when `codebuddy` is not in `platforms`.
+
 ### Pi
 
-**Pi** is **Shipped** (**interactive TUI live Stop-continue ≥1× proved**). Autopilot is an **in-process** TypeScript extension (not a shell `--platform pi` stamp — dispatch stays **eleven-way shell + Pi extension**).
+**Pi** is **Shipped** (**interactive TUI live Stop-continue ≥1× proved**). Autopilot is an **in-process** TypeScript extension (not a shell `--platform pi` stamp — dispatch stays **twelve-way shell + Pi extension**).
 
 - Extension: project **`.pi/extensions/autopilot.ts`** (init **direct-writes**; **never** `pi install`; PATH `pi` not required to write) loading **`.autopilot/bin/vendor/runtime.mjs`**.
 - Events: **`input`** / **`before_agent_start`** (ON/RUN) / **`tool_result`** (`write`\|`edit` + dirty-arm) / **`agent_settled`** continue via **`sendMessage` + `followUp` + `triggerTurn`** (**R1:** inject only when pending followup).

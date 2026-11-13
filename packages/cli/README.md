@@ -28,6 +28,7 @@ npx @autopilot-harness/cli init --yes
 # npx @autopilot-harness/cli init --platform antigravity --yes
 # npx @autopilot-harness/cli init --platform pi --yes
 # npx @autopilot-harness/cli init --platform devin --yes
+# npx @autopilot-harness/cli init --platform codebuddy --yes
 # multi-host later (example; requires prior init):
 npx @autopilot-harness/cli init --yes --add-platform claude-code
 ```
@@ -38,7 +39,7 @@ Interactive TUI (platform still defaults to cursor):
 npx @autopilot-harness/cli init
 ```
 
-Reload the host (Cursor: Reload Window; Claude Code / Codex / Kimi Code / Copilot CLI / Grok Build / Gemini CLI / Factory Droid / Hermes Agent / Antigravity / Devin / Pi: restart / new session / `/reload`). **Restart Copilot CLI** after install or upgrade so hooks reload. Trust Codex via `/hooks`, Grok via `/hooks-trust` or `--trust`, Gemini via re-trust / `/hooks panel` / folder trust, Factory via **`$FACTORY_PROJECT_DIR`** commands + **`/hooks` + snapshot/reload**, Hermes via **`$HERMES_HOME`** + relative command + consent / **`hermes hooks doctor`**, Antigravity via **`.agents`** reload / CLI firing surface when applicable (**auto-attach ≠ Autopilot ON**), Devin via **`$DEVIN_PROJECT_DIR`** + **`/hooks` + new session**, and Pi via **`/trust` then `/reload`** (soft min **≥0.85.1**; **R10** interactive TUI only — **not** `pi -p` / JSON), then:
+Reload the host (Cursor: Reload Window; Claude Code / Codex / Kimi Code / Copilot CLI / Grok Build / Gemini CLI / Factory Droid / Hermes Agent / Antigravity / Devin / Pi: restart / new session / `/reload`). **Restart Copilot CLI** after install or upgrade so hooks reload. Trust Codex via `/hooks`, Grok via `/hooks-trust` or `--trust`, Gemini via re-trust / `/hooks panel` / folder trust, Factory via **`$FACTORY_PROJECT_DIR`** commands + **`/hooks` + snapshot/reload**, Hermes via **`$HERMES_HOME`** + relative command + consent / **`hermes hooks doctor`**, Antigravity via **`.agents`** reload / CLI firing surface when applicable (**auto-attach ≠ Autopilot ON**), Devin via **`$DEVIN_PROJECT_DIR`** + **`/hooks` + new session**, CodeBuddy via **`.codebuddy/settings.json`** hooks reviewed in **`/hooks`** + **new session** (settings are snapshotted at startup; UPS block is `continue:false` + `reason`, Stop continue uses exit 2 + stderr; init writes `loop_limit: -1` for the IDE), and Pi via **`/trust` then `/reload`** (soft min **≥0.85.1**; **R10** interactive TUI only — **not** `pi -p` / JSON), then:
 
 1. Plan — Cursor/Claude: `/autopilot-on`; Codex / Kimi / Copilot / Grok: line-start `triggers.on`; Gemini / Factory / Hermes / Antigravity / Devin / Pi: host skills **and** line-start (typed slash still parses)
 2. Execute — Cursor/Claude: `/autopilot-run`; Codex / Kimi / Copilot / Grok: line-start `triggers.run`; Gemini / Factory / Hermes / Antigravity / Devin / Pi: host skills **and** line-start

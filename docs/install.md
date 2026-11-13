@@ -39,6 +39,7 @@ Interactive TUI: omit `--yes`. Flags: `npx @autopilot-harness/cli init --help`.
 | `antigravity` | cli | `init --platform antigravity --yes` | Docs / `npx` only this release | Mount workspace; reload |
 | `pi` | cli (in-process) | `init --platform pi --yes` | **Never** `pi install` for Autopilot | `/trust` then `/reload`; **TUI only** |
 | `devin` | cli | `init --platform devin --yes` | Docs / `npx` only this release | `$DEVIN_PROJECT_DIR`; `/hooks`; **CLI only** |
+| `codebuddy` | cli | `init --platform codebuddy --yes` | Docs / `npx` only this release | `/hooks` review; new session (settings snapshot) |
 | `dsh` | cli (in-process) | `init --platform dsh --yes` | **No host marketplace** — install `dsh-autopilot` in the DSH profile | Add patch entry in `~/.dsh/cordis.patch.yml`; in-process, **no hooks.json** |
 | `runner` | runner | `init --yes --add-platform runner` (or `init --platform runner --yes` as first host) | **npm / docs only** — no host marketplace plugin | Set `runner.command`; `npx @autopilot-harness/cli runner start …` |
 
@@ -119,6 +120,12 @@ Interactive TUI: omit `--yes`. Flags: `npx @autopilot-harness/cli init --help`.
 1. **Discover:** `npx` only this release.
 2. **Init:** `npx @autopilot-harness/cli init --platform devin --yes`
 3. **Doctor:** `$DEVIN_PROJECT_DIR` = instrumented root; `/hooks` + new session. **CLI only** — not Desktop / cloud Devin / Cascade.
+
+### codebuddy
+
+1. **Discover:** `npx` only this release.
+2. **Init:** `npx @autopilot-harness/cli init --platform codebuddy --yes` (writes `.codebuddy/settings.json` hooks + `.codebuddy/skills/autopilot-*`).
+3. **Doctor:** review hooks in `/hooks`, then start a new session (CodeBuddy snapshots settings at startup). UPS block is `continue:false` + `reason`; **Stop continue uses blocking (exit 2 + stderr)** because CLI 2.181 drops Stop `continue:false`. The IDE defaults to **1** continue/turn, so init writes **`loop_limit: -1`**. Mid-chain cutoff → `/autopilot-resume`. IDE reads the project `.codebuddy/settings.json` (verified in 4.12) and merges it with user settings.
 
 ### dsh
 

@@ -9,6 +9,10 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **CodeBuddy Code host port** (`@autopilot-harness/port-codebuddy`, `--platform codebuddy`): project **`.codebuddy/settings.json`** hooks (nested matcher groups; timeout **120**; `UserPromptSubmit` + `PostToolUse` `^(Edit|Write|MultiEdit|NotebookEdit)$` + `Stop`) and **`.codebuddy/skills/autopilot-*`**. stdin is Claude-shaped. UPS block uses **`continue:false` + `reason`** (never `decision:block`); **Stop continue uses blocking (exit 2 + stderr)** because CLI 2.181 parses Stop `continue:false` as `{allowed:false}` without `blocking` and only logs "failed non-blockingly". Init writes **`loop_limit: -1`** for the IDE (4.12 defaults to 1 continue/turn; it reads project `.codebuddy/settings.json`). Core transcript normalization now strips CodeBuddy's `Stop hook feedback:` + `[cmd]:` wrapper so delivered follow-ups are not redelivered. UPS inject uses `hookSpecificOutput.additionalContext`; `loop:false` delivers once via `continue:true` + `systemMessage`. Settings are snapshotted at startup (review `/hooks`, start a new session). Shell dispatch becomes **twelve-way**. Uninstall/upgrade/doctor strip and verify the CodeBuddy fingerprint independently; default `.autopilotignore` ignores **`.codebuddy/settings.json`** + **`.codebuddy/skills/**`**.
+
 ## [0.18.5] — 2026-10-14
 
 ### Added

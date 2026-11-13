@@ -39,6 +39,7 @@ npx @autopilot-harness/cli doctor
 | `antigravity` | cli | `init --platform antigravity --yes` | 本版仅文档 / `npx` | 挂载工作区；reload |
 | `pi` | cli（进程内） | `init --platform pi --yes` | Autopilot **禁止** `pi install` | `/trust` 再 `/reload`；**仅 TUI** |
 | `devin` | cli | `init --platform devin --yes` | 本版仅文档 / `npx` | `$DEVIN_PROJECT_DIR`；`/hooks`；**仅 CLI** |
+| `codebuddy` | cli | `init --platform codebuddy --yes` | 本版仅文档 / `npx` | 查看 `/hooks`；新开会话（启动时快照设置） |
 | `dsh` | cli（进程内插件） | `init --platform dsh --yes` | **无宿主市场** — 在 DSH profile 里安装 `dsh-autopilot` | 在 `~/.dsh/cordis.patch.yml` 加 patch 条目；进程内，**不写 hooks.json** |
 | `runner` | runner | `init --yes --add-platform runner`（或首装 `init --platform runner --yes`） | **仅 npm / 文档** — 无宿主 marketplace 插件 | 配置 `runner.command`；`runner start …` |
 
@@ -119,6 +120,12 @@ npx @autopilot-harness/cli doctor
 1. **发现：** 本版仅 `npx`。
 2. **Init：** `npx @autopilot-harness/cli init --platform devin --yes`
 3. **Doctor：** `$DEVIN_PROJECT_DIR` = 已接入根；`/hooks` + 新会话。**仅 CLI** — 非 Desktop / 云 Devin / Cascade。
+
+### codebuddy
+
+1. **发现：** 本版仅 `npx`。
+2. **初始化：** `npx @autopilot-harness/cli init --platform codebuddy --yes`（写 `.codebuddy/settings.json` hooks + `.codebuddy/skills/autopilot-*`）。
+3. **Doctor：** 在 `/hooks` 里确认 hooks，然后新开会话（CodeBuddy 启动时快照设置）。UPS 拦截用 `continue:false` + `reason`；**Stop 续跑用 blocking（exit 2 + stderr）**，因为 CLI 2.181 会把 Stop 的 `continue:false` 当作 non-blocking failure。IDE 默认每轮只续跑 **1** 次，init 会写 **`loop_limit: -1`**。链中途被截断用 `/autopilot-resume`。桌面端会读取项目级 `.codebuddy/settings.json`（4.12 已验证）并与用户级设置合并。
 
 ### dsh
 
