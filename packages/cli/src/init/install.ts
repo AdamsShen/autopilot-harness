@@ -61,6 +61,13 @@ import {
   readHermesConfigYaml,
   resolveHermesHome,
 } from "./hermes-hooks-merge.js";
+import {
+  DSH_PATCH_REL_PATH,
+  dshPatchYamlPath,
+  mergeDshPatchYaml,
+  readDshPatch,
+  resolveDshHome,
+} from "./dsh-patch-merge.js";
 import type {
   HooksFile,
   InitLocale,
@@ -2282,6 +2289,32 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         return { ok: false, error: hermesPre.error };
       }
     }
+    // DSH 是进程内插件：配置面是机器级 cordis 补丁层（~/.dsh/cordis.patch.yml），
+    // 不是项目内 hooks.json。这里只做「路径可信」的 preflight，真正写入在最后统一提交。
+    const dshHome = resolveDshHome();
+    const dshPatchPath = dshPatchYamlPath(dshHome);
+    if (wantDsh) {
+      try {
+        assertNotSymlink(dshHome, "DSH home/");
+        assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+        try {
+          const homeSt = fs.lstatSync(dshHome);
+          if (!homeSt.isDirectory()) {
+            return { ok: false, error: "DSH home/ exists and is not a directory" };
+          }
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== "ENOENT") throw err;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+      const dshPre = readDshPatch(dshPatchPath);
+      if (!dshPre.ok) {
+        return { ok: false, error: dshPre.error };
+      }
+    }
 
     // Fresh init: write config only after host settings preflight succeeded.
     if (!configExists) {
@@ -2444,6 +2477,7 @@ export function installInitYes(opts: InitYesOptions): InitResult {
     let antigravityFresh: AntigravityHooksRead | null = null;
     let kimiFresh: ReturnType<typeof readKimiConfigToml> | null = null;
     let hermesFresh: ReturnType<typeof readHermesConfigYaml> | null = null;
+    let dshFresh: ReturnType<typeof readDshPatch> | null = null;
     if (wantCursor) {
       hooksFresh = readHooksFile(hooksPath);
       if (!hooksFresh.ok) {
@@ -2640,6 +2674,21 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         return { ok: false, error: msg };
       }
     }
+    if (wantDsh) {
+      dshFresh = readDshPatch(dshPatchPath);
+      if (!dshFresh.ok) {
+        rollbackFreshConfig();
+        return { ok: false, error: dshFresh.error };
+      }
+      try {
+        assertNotSymlink(dshHome, "DSH home/");
+        assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+      } catch (err) {
+        rollbackFreshConfig();
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+    }
 
     // Fail-fast: merge the pre-skills snapshot in memory so shape errors cannot
     // leave orphan host skills. Final re-read+merge happens immediately before
@@ -2680,6 +2729,9 @@ export function installInitYes(opts: InitYesOptions): InitResult {
       }
       if (wantHermes && hermesFresh?.ok) {
         mergeHermesConfigYaml(hermesFresh.value);
+      }
+      if (wantDsh && dshFresh?.ok) {
+        mergeDshPatchYaml(dshFresh.value);
       }
     } catch (err) {
       rollbackFreshConfig();
@@ -2766,6 +2818,7 @@ export function installInitYes(opts: InitYesOptions): InitResult {
       null;
     let mergedKimi: string | null = null;
     let mergedHermes: string | null = null;
+    let mergedDsh: string | null = null;
     try {
       if (wantCursor) {
         const hooksFinal = readHooksFile(hooksPath);
@@ -2899,6 +2952,16 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         assertNotSymlink(hermesHome, "Hermes home/");
         assertNotSymlink(hermesYamlPath, "config.yaml");
         mergedHermes = mergeHermesConfigYaml(hermesFinal.value);
+      }
+      if (wantDsh) {
+        const dshFinal = readDshPatch(dshPatchPath);
+        if (!dshFinal.ok) {
+          rollbackFreshConfig();
+          return { ok: false, error: dshFinal.error };
+        }
+        assertNotSymlink(dshHome, "DSH home/");
+        assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+        mergedDsh = mergeDshPatchYaml(dshFinal.value);
       }
     } catch (err) {
       rollbackFreshConfig();
@@ -3072,6 +3135,25 @@ export function installInitYes(opts: InitYesOptions): InitResult {
         return {
           ok: false,
           error: `Cannot write Hermes config.yaml: ${msg}`,
+        };
+      }
+    }
+    if (mergedDsh != null) {
+      try {
+        fs.mkdirSync(dshHome, { recursive: true });
+        assertNotSymlink(dshHome, "DSH home/");
+        if (!isRealDirectory(dshHome)) {
+          throw new Error("DSH home/ is not a real directory");
+        }
+        assertNotSymlink(dshPatchPath, DSH_PATCH_REL_PATH);
+        writeFileReplaceSync(dshPatchPath, mergedDsh);
+        written.push(dshPatchPath);
+      } catch (err) {
+        rollbackFreshConfig();
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          ok: false,
+          error: `Cannot write DSH ${DSH_PATCH_REL_PATH}: ${msg}`,
         };
       }
     }
